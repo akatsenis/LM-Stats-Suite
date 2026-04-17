@@ -59,6 +59,130 @@ def init_page(page_title="lm Stats"):
     st.set_page_config(page_title=page_title, page_icon="🔬", layout="wide")
     inject_css()
 
+def plot_regression_advanced(
+    data_df,
+    model,
+    grid_df,
+    confidence=0.95,
+    interval="pi",
+    side="upper",
+    title="",
+    xlabel="Time",
+    ylabel="Response",
+    point_label="Data",
+    y_suffix="%",
+    spec_enabled=False,
+    spec_limit=None,
+    spec_label="US",
+    crossing_on="auto",
+):
+    cfg = get_plot_cfg("Regression Analysis")
+    x = data_df["x"].to_numpy()
+    y = data_df["y"].to_numpy()
+    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+
+    main_color = cfg["primary_color"]
+    pi_color = cfg["secondary_color"]
+    ci_color = cfg["band_color"]
+    lw = cfg["line_width"]
+    ls = cfg["line_style"]
+    aux_ls = cfg["aux_line_style"]
+    ms = cfg["marker_size"]
+    area_alpha = 0.18
+
+    ax.scatter(x, y, color=main_color, s=ms, alpha=0.85, label=point_label, zorder=3)
+    ax.plot(grid_df["x"], grid_df["fit"], color=main_color, lw=lw, ls=ls, label="Fitted Line")
+
+    if interval in ["ci", "both"]:
+        if side == "two-sided":
+            ax.fill_between(grid_df["x"], grid_df["ci_lower"], grid_df["ci_upper"], color=ci_color, alpha=area_alpha, label="Confidence Interval (CI)")
+            ax.plot(grid_df["x"], grid_df["ci_upper"], color=ci_color, ls=aux_ls, lw=cfg["aux_line_width"])
+            ax.plot(grid_df["x"], grid_df["ci_lower"], color=ci_color, ls=aux_ls, lw=cfg["aux_line_width"])
+        elif side == "upper":
+            ax.fill_between(grid_df["x"], grid_df["fit"], grid_df["ci_upper"], color=ci_color, alpha=area_alpha, label="Upper CI")
+            ax.plot(grid_df["x"], grid_df["ci_upper"], color=ci_color, ls=aux_ls, lw=cfg["aux_line_width"], label="_nolegend_")
+        else:
+            ax.fill_between(grid_df["x"], grid_df["ci_lower"], grid_df["fit"], color=ci_color, alpha=area_alpha, label="Lower CI")
+            ax.plot(grid_df["x"], grid_df["ci_lower"], color=ci_color, ls=aux_ls, lw=cfg["aux_line_width"], label="_nolegend_")
+
+    if interval in ["pi", "both"]:
+        pa = max(area_alpha - 0.05, 0.05)
+        if side == "two-sided":
+            ax.fill_between(grid_df["x"], grid_df["pi_lower"], grid_df["pi_upper"], color=pi_color, alpha=pa, label="Prediction Interval (PI)")
+            ax.plot(grid_df["x"], grid_df["pi_upper"], color=pi_color, ls=aux_ls, lw=cfg["aux_line_width"])
+            ax.plot(grid_df["x"], grid_df["pi_lower"], color=pi_color, ls=aux_ls, lw=cfg["aux_line_width"])
+        elif side == "upper":
+            ax.fill_between(grid_df["x"], grid_df["fit"], grid_df["pi_upper"], color=pi_color, alpha=pa, label="Upper PI")
+            ax.plot(grid_df["x"], grid_df["pi_upper"], color=pi_color, ls=aux_ls, lw=cfg["aux_line_width"], label="_nolegend_")
+        else:
+            ax.fill_between(grid_df["x"], grid_df["pi_lower"], grid_df["fit"], color=pi_color, alpha=pa, label="Lower PI")
+            ax.plot(grid_df["x"], grid_df["pi_lower"], color=pi_color, ls=aux_ls, lw=cfg["aux_line_width"], label="_nolegend_")
+
+    crossing_x = None
+    if spec_enabled and spec_limit is not None:
+        ax.axhline(spec_limit, color=cfg["tertiary_color"], ls=aux_ls, lw=lw, label=f"Limit ({spec_label})")
+
+        curve_map = {
+            "fit": grid_df["fit"].to_numpy(),
+            "ci_upper": grid_df["ci_upper"].to_numpy(),
+            "ci_lower": grid_df["ci_lower"].to_numpy(),
+            "pi_upper": grid_df["pi_upper"].to_numpy(),
+            "pi_lower": grid_df["pi_lower"].to_numpy(),
+        }
+
+        if crossing_on == "auto":
+            if interval in ["both", "pi"]:
+                crossing_on = "pi_upper" if side == "upper" else "pi_lower" if side == "lower" else "pi_upper"
+            else:
+                crossing_on = "ci_upper" if side == "upper" else "ci_lower" if side == "lower" else "ci_upper"
+
+        if crossing_on in curve_map:
+            crossing_x = reg_find_crossing(grid_df["x"].to_numpy(), curve_map[crossing_on], spec_limit)
+            if crossing_x is not None:
+                ax.axvline(crossing_x, color=cfg["tertiary_color"], ls=aux_ls, lw=cfg["aux_line_width"])
+
+        xmin = float(grid_df["x"].min())
+        xmax = float(grid_df["x"].max())
+        ymax_data = max(float(grid_df["fit"].max()), float(grid_df["ci_upper"].max()), float(grid_df["pi_upper"].max()), float(y.max()))
+        ymin_data = min(float(grid_df["fit"].min()), float(grid_df["ci_lower"].min()), float(grid_df["pi_lower"].min()), float(y.min()))
+        pad = 0.02 * (ymax_data - ymin_data if ymax_data > ymin_data else 1)
+        suffix = y_suffix or ""
+
+        ax.text(
+            xmin + (xmax - xmin) * 0.02,
+            spec_limit + pad,
+            f"{spec_label} = {spec_limit:.1f}{suffix}",
+            ha="left",
+            va="bottom",
+            fontsize=11,
+            color=cfg["tertiary_color"],
+            weight="bold",
+            bbox=dict(facecolor="white", alpha=0.8, edgecolor="none", pad=2),
+        )
+
+        if crossing_x is not None:
+            ax.text(
+                crossing_x,
+                ymin_data + pad,
+                f" {crossing_x:.2f}",
+                color=cfg["tertiary_color"],
+                ha="left",
+                va="bottom",
+                fontsize=11,
+                weight="bold",
+                bbox=dict(facecolor="white", alpha=0.8, edgecolor="none", pad=2),
+            )
+
+    if y_suffix:
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, pos: f"{v:.1f}{y_suffix}"))
+
+    if not title.strip():
+        s1 = {"upper": "Upper One-Sided", "lower": "Lower One-Sided", "two-sided": "Two-Sided"}[side]
+        s2 = {"ci": "Confidence Intervals", "pi": "Prediction Intervals", "both": "Confidence and Prediction Intervals"}[interval]
+        title = f"{s1} {s2} ({confidence:.0%})"
+
+    apply_ax_style(ax, title, xlabel, ylabel, legend=True, plot_key="Regression Analysis")
+    return fig, crossing_x
 
 def inject_css():
     st.markdown(
