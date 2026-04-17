@@ -1,4 +1,20 @@
+import modules.common as common
 from modules.common import *
+
+st = common.st
+pd = common.pd
+np = common.np
+plt = common.plt
+stats = common.stats
+smf = common.smf
+anova_lm = common.anova_lm
+PCA = common.PCA
+
+app_header = common.app_header
+info_box = common.info_box
+
+DEFAULT_DECIMALS = common.DEFAULT_DECIMALS
+
 
 TOOLS = ['01 - Descriptive Statistics', '02 - Regression Intervals', '03 - Shelf Life Estimator', '04 - Dissolution Comparison (f2)', '05 - Two-Sample Tests', '06 - Two-Way ANOVA', '07 - Tolerance & Confidence Intervals', '08 - PCA Analysis']
 
@@ -122,7 +138,7 @@ def render():
     
         
         def _graphical_summary_figure(stats_list, title, shaded_range=None, shaded_label=None):
-            cfg = get_plot_cfg("Descriptive summary")
+            cfg = common.safe_get_plot_cfg("Descriptive summary")
             if len(stats_list) > 1:
                 colors = [cfg["primary_color"], cfg["secondary_color"], cfg["tertiary_color"]]
             else:
@@ -559,8 +575,8 @@ def render():
                         txt = str(txt).strip()
                         return None if txt == "" else float(txt)
     
-                    x_min = parse_optional_float(x_min_txt)
-                    x_max = parse_optional_float(x_max_txt)
+                    x_min = common.parse_optional_float(x_min_txt)
+                    x_max = common.parse_optional_float(x_max_txt)
                     if x_min is None:
                         x_min = min(0.0, float(data_df["x"].min()))
                     if x_max is None:
@@ -585,7 +601,7 @@ def render():
                         point_label=point_label,
                         y_suffix=y_suffix,
                         spec_enabled=spec_enabled,
-                        spec_limit=parse_optional_float(spec_value_txt) if spec_enabled else None,
+                        spec_limit=common.parse_optional_float(spec_value_txt) if spec_enabled else None,
                         spec_label=spec_label,
                         crossing_on=crossing_on,
                     )
@@ -836,14 +852,14 @@ def render():
                 xlabel = xlabel_override.strip() or x_label_from_header or "Time"
                 ylabel = ylabel_override.strip() or y_label_from_header or "Response"
                 pred_x = parse_x_values(pred_x_text)
-                spec_limit = parse_optional_float(spec_value_txt)
+                spec_limit = common.parse_optional_float(spec_value_txt)
                 if spec_limit is None:
                     raise ValueError("Enter a valid specification value.")
     
                 x_data_max = float(data_df["x"].max())
                 x_future_max = float(np.max(pred_x)) if len(pred_x) > 0 else x_data_max
-                x_min = parse_optional_float(x_min_txt)
-                x_max = parse_optional_float(x_max_txt)
+                x_min = common.parse_optional_float(x_min_txt)
+                x_max = common.parse_optional_float(x_max_txt)
                 if x_min is None:
                     x_min = min(0.0, float(data_df["x"].min()))
                 if x_max is None:
@@ -1496,7 +1512,7 @@ def render():
                     if group_col != "(None)":
                         scores_df["Group"] = df.loc[X.index, group_col].astype(str).values
     
-                    score_cfg = get_plot_cfg("PCA score plot")
+                    score_cfg = common.safe_get_plot_cfg("PCA score plot")
                     fig_scores, ax = plt.subplots(figsize=(score_cfg["fig_w"], score_cfg["fig_h"]))
                     color_cycle = [score_cfg["primary_color"], score_cfg["secondary_color"], score_cfg["tertiary_color"], "#9467bd", "#8c564b", "#e377c2"]
     
@@ -1533,7 +1549,7 @@ def render():
                     apply_ax_style(ax, "PCA score plot", f"PC1 ({exp[0]:.1f}% var)", f"PC2 ({exp[1]:.1f}% var)", legend=(group_col != "(None)"), plot_key="PCA score plot")
                     st.pyplot(fig_scores)
     
-                    load_cfg = get_plot_cfg("PCA loading plot")
+                    load_cfg = common.safe_get_plot_cfg("PCA loading plot")
                     fig_load, ax2 = plt.subplots(figsize=(load_cfg["fig_w"], load_cfg["fig_h"]))
                     ax2.axhline(0, color="#64748b", lw=load_cfg["aux_line_width"], ls=load_cfg["aux_line_style"])
                     ax2.axvline(0, color="#64748b", lw=load_cfg["aux_line_width"], ls=load_cfg["aux_line_style"])

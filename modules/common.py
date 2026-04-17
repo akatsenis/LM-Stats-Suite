@@ -106,129 +106,749 @@ PLOT_STYLE_KEYS = [
 ]
 LINE_STYLE_MAP = {"Solid": "-", "Dash": "--", "Dot": ":", "Dash-dot": "-."}
 DEFAULT_STYLE_CFG = {
-    "fig_w": 8.5,
-    "fig_h": 5.5,
+    "fig_w": 6.8,
+    "fig_h": 4.3,
     "show_legend": True,
     "legend_loc": "best",
     "primary_color": "#1f77b4",
     "secondary_color": "#ff7f0e",
     "tertiary_color": "#2ca02c",
     "band_color": "#93c5fd",
-    "grid_alpha": 0.25,
+    "marker_color": "#1f77b4",
+    "line_color": "#1f77b4",
+    "border_color": "#111827",
+    "font_color": "#111827",
+    "grid_alpha": 0.22,
     "line_style": "-",
     "aux_line_style": "--",
-    "line_width": 2.0,
-    "aux_line_width": 1.4,
-    "marker_size": 46,
+    "line_width": 1.8,
+    "aux_line_width": 1.2,
+    "marker_size": 32,
+    "marker_style": "o",
     "tick_dir": "out",
     "tick_len": 4,
     "border_width": 1.0,
     "show_top": True,
     "show_right": True,
+    "axis_type": "standard",
+    "font_family": "DejaVu Sans",
+    "font_size": 10,
+    "title_size": 12,
+    "label_size": 10,
+    "tick_label_size": 9,
     "x_min": None,
     "x_max": None,
     "y_min": None,
     "y_max": None,
-    "arrow_size": 0.03,
+    "arrow_size": 0.025,
 }
 
 
-
-
 def _parse_style_float(val):
-    if val in (None, ""):
+    if val in [None, "", "None"]:
         return None
     try:
-        return float(val)
+        return float(str(val).strip())
     except Exception:
         return None
 
 
 def get_plot_cfg(plot_key="All graphs"):
-    cfg = DEFAULT_STYLE_CFG.copy()
-    style_cfg = st.session_state.get("plot_style_cfg", {})
-    all_cfg = style_cfg.get("All graphs", {}) if isinstance(style_cfg, dict) else {}
-    if isinstance(all_cfg, dict):
-        cfg.update({k: v for k, v in all_cfg.items() if v is not None and v != ""})
-    this_cfg = style_cfg.get(plot_key, {}) if isinstance(style_cfg, dict) else {}
-    if isinstance(this_cfg, dict):
-        cfg.update({k: v for k, v in this_cfg.items() if v is not None and v != ""})
-    for k in ("x_min", "x_max", "y_min", "y_max"):
-        cfg[k] = _parse_style_float(cfg.get(k))
-    return cfg
+    cfg_map = st.session_state.get("plot_style_cfg", {})
+    base = DEFAULT_STYLE_CFG.copy()
+    base.update(cfg_map.get("All graphs", {}))
+    if plot_key != "All graphs":
+        base.update(cfg_map.get(plot_key, {}))
+    for k in ["x_min", "x_max", "y_min", "y_max", "fig_w", "fig_h", "line_width", "aux_line_width", "border_width", "grid_alpha", "arrow_size"]:
+        if k in base:
+            parsed = _parse_style_float(base.get(k))
+            if parsed is not None or k in ["x_min", "x_max", "y_min", "y_max"]:
+                base[k] = parsed
+    for k in ["marker_size", "tick_len", "font_size", "title_size", "label_size", "tick_label_size"]:
+        try:
+            base[k] = int(float(base.get(k, DEFAULT_STYLE_CFG[k])))
+        except Exception:
+            base[k] = DEFAULT_STYLE_CFG[k]
+    return base
+
+
+def safe_get_plot_cfg(plot_key="All graphs"):
+    try:
+        return get_plot_cfg(plot_key)
+    except Exception:
+        return DEFAULT_STYLE_CFG.copy()
+
+
 def render_display_settings():
     global DEFAULT_DECIMALS, FIG_W, FIG_H, SHOW_LEGEND, LEGEND_LOC, PRIMARY_COLOR, SECONDARY_COLOR, TERTIARY_COLOR, BAND_COLOR, GRID_ALPHA, MARKER_SIZE, FIT_LINE_COLOR, FIT_LINE_STYLE, LINE_WIDTH, AREA_ALPHA, CI_LINE_STYLE, PI_LINE_STYLE, SPEC_LINE_STYLE, ARROW_SIZE
     if "plot_style_cfg" not in st.session_state:
         st.session_state["plot_style_cfg"] = {k: {} for k in PLOT_STYLE_KEYS}
         st.session_state["plot_style_cfg"]["All graphs"] = DEFAULT_STYLE_CFG.copy()
+
     with st.sidebar.expander("Display & export settings", expanded=False):
-        DEFAULT_DECIMALS = st.slider("Default decimals", 1, 8, int(st.session_state.get('default_decimals', 3)), key='global_default_decimals')
-        st.session_state['default_decimals'] = DEFAULT_DECIMALS
-        target_graph = st.selectbox("Graph to customize", PLOT_STYLE_KEYS, index=0)
-        base_cfg = DEFAULT_STYLE_CFG.copy()
-        base_cfg.update(st.session_state["plot_style_cfg"].get("All graphs", {}))
-        current_cfg = base_cfg.copy()
-        if target_graph != "All graphs":
-            current_cfg.update(st.session_state["plot_style_cfg"].get(target_graph, {}))
-        c1, c2 = st.columns(2)
+        DEFAULT_DECIMALS = st.number_input("Default decimals", min_value=1, max_value=8, value=int(st.session_state.get("default_decimals", 3)), step=1, key="global_default_decimals")
+        st.session_state["default_decimals"] = DEFAULT_DECIMALS
+        target_graph = st.selectbox("Graph to customize", PLOT_STYLE_KEYS, index=0, key="target_graph_style")
+        current_cfg = safe_get_plot_cfg(target_graph)
+        st.caption("Direct click-to-style on a matplotlib figure is not reliable in Streamlit. Use the graph selector above to apply formatting to one graph at a time.")
+
+        st.markdown("**Sizes**")
+        s1, s2, s3 = st.columns(3)
+        with s1:
+            fig_w = st.number_input("Figure width", min_value=3.0, max_value=16.0, value=float(current_cfg.get("fig_w", 6.8)), step=0.2, key=f"{target_graph}_fig_w")
+            marker_size = st.number_input("Marker size", min_value=1, max_value=200, value=int(current_cfg.get("marker_size", 32)), step=1, key=f"{target_graph}_ms")
+            font_size = st.number_input("Font size", min_value=6, max_value=24, value=int(current_cfg.get("font_size", 10)), step=1, key=f"{target_graph}_font_size")
+        with s2:
+            fig_h = st.number_input("Figure height", min_value=2.5, max_value=12.0, value=float(current_cfg.get("fig_h", 4.3)), step=0.2, key=f"{target_graph}_fig_h")
+            line_width = st.number_input("Line width", min_value=0.2, max_value=6.0, value=float(current_cfg.get("line_width", 1.8)), step=0.1, key=f"{target_graph}_lw")
+            label_size = st.number_input("Axis label size", min_value=6, max_value=28, value=int(current_cfg.get("label_size", 10)), step=1, key=f"{target_graph}_label_size")
+        with s3:
+            aux_line_width = st.number_input("Aux line width", min_value=0.2, max_value=6.0, value=float(current_cfg.get("aux_line_width", 1.2)), step=0.1, key=f"{target_graph}_alw")
+            border_width = st.number_input("Border size", min_value=0.2, max_value=5.0, value=float(current_cfg.get("border_width", 1.0)), step=0.1, key=f"{target_graph}_bw")
+            title_size = st.number_input("Title size", min_value=6, max_value=30, value=int(current_cfg.get("title_size", 12)), step=1, key=f"{target_graph}_title_size")
+
+        st.markdown("**Types**")
+        t1, t2, t3, t4 = st.columns(4)
+        marker_options = ["o", "s", "^", "D", "v", "P", "X", "*", "+", "x"]
+        line_names = list(LINE_STYLE_MAP.keys())
+        axis_type_options = ["standard", "boxed", "left-bottom only"]
+        font_opts = ["DejaVu Sans", "Arial", "Helvetica", "Times New Roman", "Courier New"]
+        with t1:
+            marker_style = st.selectbox("Marker type", marker_options, index=marker_options.index(current_cfg.get("marker_style", "o")) if current_cfg.get("marker_style", "o") in marker_options else 0, key=f"{target_graph}_marker_style")
+        with t2:
+            line_style_name = st.selectbox("Line type", line_names, index=line_names.index(next((k for k,v in LINE_STYLE_MAP.items() if v == current_cfg.get("line_style", "-")), "Solid")), key=f"{target_graph}_line_style")
+        with t3:
+            axis_type = st.selectbox("Axis type", axis_type_options, index=axis_type_options.index(current_cfg.get("axis_type", "standard")) if current_cfg.get("axis_type", "standard") in axis_type_options else 0, key=f"{target_graph}_axis_type")
+        with t4:
+            font_family = st.selectbox("Font type", font_opts, index=font_opts.index(current_cfg.get("font_family", "DejaVu Sans")) if current_cfg.get("font_family", "DejaVu Sans") in font_opts else 0, key=f"{target_graph}_font_family")
+
+        st.markdown("**Colors**")
+        c1, c2, c3, c4 = st.columns(4)
         with c1:
-            fig_w = st.slider("Figure width", 5.0, 16.0, float(current_cfg.get("fig_w", 8.5)), 0.5, key=f"{target_graph}_fig_w")
-            show_legend = st.checkbox("Show legend", value=bool(current_cfg.get("show_legend", True)), key=f"{target_graph}_show_legend")
-            primary_color = st.color_picker("Primary color", value=current_cfg.get("primary_color", "#1f77b4"), key=f"{target_graph}_primary")
-            secondary_color = st.color_picker("Secondary color", value=current_cfg.get("secondary_color", "#ff7f0e"), key=f"{target_graph}_secondary")
-            tertiary_color = st.color_picker("Tertiary color", value=current_cfg.get("tertiary_color", "#2ca02c"), key=f"{target_graph}_tertiary")
-            line_width = st.slider("Main line width", 0.5, 4.0, float(current_cfg.get("line_width", 2.0)), 0.1, key=f"{target_graph}_lw")
-            aux_line_width = st.slider("Aux line width", 0.5, 3.0, float(current_cfg.get("aux_line_width", 1.4)), 0.1, key=f"{target_graph}_alw")
-            marker_size = st.slider("Marker size", 10, 150, int(current_cfg.get("marker_size", 46)), 1, key=f"{target_graph}_ms")
-            arrow_size = st.slider("Arrow size", 0.005, 0.20, float(current_cfg.get("arrow_size", 0.03)), 0.005, key=f"{target_graph}_arrow")
+            marker_color = st.color_picker("Marker color", value=current_cfg.get("marker_color", current_cfg.get("primary_color", "#1f77b4")), key=f"{target_graph}_marker_color")
         with c2:
-            fig_h = st.slider("Figure height", 3.0, 12.0, float(current_cfg.get("fig_h", 5.5)), 0.5, key=f"{target_graph}_fig_h")
-            legend_opts = ["best", "upper right", "upper left", "lower right", "lower left", "center left", "center right", "lower center", "upper center"]
-            legend_loc = st.selectbox("Legend location", legend_opts, index=legend_opts.index(current_cfg.get("legend_loc", "best")), key=f"{target_graph}_legend_loc")
-            band_color = st.color_picker("Band / area color", value=current_cfg.get("band_color", "#93c5fd"), key=f"{target_graph}_band")
-            grid_alpha = st.slider("Grid transparency", 0.0, 1.0, float(current_cfg.get("grid_alpha", 0.25)), 0.05, key=f"{target_graph}_ga")
-            line_style_name = st.selectbox("Main line style", list(LINE_STYLE_MAP.keys()), index=list(LINE_STYLE_MAP.values()).index(current_cfg.get("line_style", "-")) if current_cfg.get("line_style", "-") in LINE_STYLE_MAP.values() else 0, key=f"{target_graph}_ls")
-            aux_line_style_name = st.selectbox("Aux line style", list(LINE_STYLE_MAP.keys()), index=list(LINE_STYLE_MAP.values()).index(current_cfg.get("aux_line_style", "--")) if current_cfg.get("aux_line_style", "--") in LINE_STYLE_MAP.values() else 1, key=f"{target_graph}_als")
+            line_color = st.color_picker("Line color", value=current_cfg.get("line_color", current_cfg.get("primary_color", "#1f77b4")), key=f"{target_graph}_line_color")
+        with c3:
+            border_color = st.color_picker("Border color", value=current_cfg.get("border_color", "#111827"), key=f"{target_graph}_border_color")
+        with c4:
+            font_color = st.color_picker("Font color", value=current_cfg.get("font_color", "#111827"), key=f"{target_graph}_font_color")
+        c5, c6, c7 = st.columns(3)
+        with c5:
+            band_color = st.color_picker("Band / fill color", value=current_cfg.get("band_color", "#93c5fd"), key=f"{target_graph}_band_color")
+        with c6:
+            secondary_color = st.color_picker("Secondary color", value=current_cfg.get("secondary_color", "#ff7f0e"), key=f"{target_graph}_secondary_color")
+        with c7:
+            tertiary_color = st.color_picker("Tertiary color", value=current_cfg.get("tertiary_color", "#2ca02c"), key=f"{target_graph}_tertiary_color")
+
+        st.markdown("**Axes / legend**")
+        a1, a2, a3, a4 = st.columns(4)
+        with a1:
             tick_dir = st.selectbox("Tick direction", ["out", "in", "inout"], index=["out", "in", "inout"].index(current_cfg.get("tick_dir", "out")), key=f"{target_graph}_tick_dir")
-            tick_len = st.slider("Tick length", 0, 12, int(current_cfg.get("tick_len", 4)), 1, key=f"{target_graph}_tick_len")
-            border_width = st.slider("Border width", 0.5, 3.0, float(current_cfg.get("border_width", 1.0)), 0.1, key=f"{target_graph}_bw")
+            tick_len = st.number_input("Tick size", min_value=0, max_value=20, value=int(current_cfg.get("tick_len", 4)), step=1, key=f"{target_graph}_tick_len")
+        with a2:
+            show_legend = st.checkbox("Show legend", value=bool(current_cfg.get("show_legend", True)), key=f"{target_graph}_show_legend")
+            legend_opts = ["best", "upper right", "upper left", "lower right", "lower left", "center left", "center right", "lower center", "upper center"]
+            legend_loc = st.selectbox("Legend location", legend_opts, index=legend_opts.index(current_cfg.get("legend_loc", "best")) if current_cfg.get("legend_loc", "best") in legend_opts else 0, key=f"{target_graph}_legend_loc")
+        with a3:
+            grid_alpha = st.number_input("Grid transparency", min_value=0.0, max_value=1.0, value=float(current_cfg.get("grid_alpha", 0.22)), step=0.05, key=f"{target_graph}_ga")
             show_top = st.checkbox("Show top border", value=bool(current_cfg.get("show_top", True)), key=f"{target_graph}_top")
+        with a4:
+            arrow_size = st.number_input("Arrow size", min_value=0.001, max_value=0.3, value=float(current_cfg.get("arrow_size", 0.025)), step=0.005, key=f"{target_graph}_arrow")
             show_right = st.checkbox("Show right border", value=bool(current_cfg.get("show_right", True)), key=f"{target_graph}_right")
+
         st.markdown("**Axis limits (leave blank for automatic)**")
         x1, x2, y1, y2 = st.columns(4)
-        x_min_cfg = x1.text_input("X min", value="" if current_cfg.get("x_min", None) in [None, ""] else str(current_cfg.get("x_min")), key=f"{target_graph}_xmin")
-        x_max_cfg = x2.text_input("X max", value="" if current_cfg.get("x_max", None) in [None, ""] else str(current_cfg.get("x_max")), key=f"{target_graph}_xmax")
-        y_min_cfg = y1.text_input("Y min", value="" if current_cfg.get("y_min", None) in [None, ""] else str(current_cfg.get("y_min")), key=f"{target_graph}_ymin")
-        y_max_cfg = y2.text_input("Y max", value="" if current_cfg.get("y_max", None) in [None, ""] else str(current_cfg.get("y_max")), key=f"{target_graph}_ymax")
+        x_min_cfg = x1.text_input("X min", value="" if current_cfg.get("x_min") in [None, ""] else str(current_cfg.get("x_min")), key=f"{target_graph}_xmin")
+        x_max_cfg = x2.text_input("X max", value="" if current_cfg.get("x_max") in [None, ""] else str(current_cfg.get("x_max")), key=f"{target_graph}_xmax")
+        y_min_cfg = y1.text_input("Y min", value="" if current_cfg.get("y_min") in [None, ""] else str(current_cfg.get("y_min")), key=f"{target_graph}_ymin")
+        y_max_cfg = y2.text_input("Y max", value="" if current_cfg.get("y_max") in [None, ""] else str(current_cfg.get("y_max")), key=f"{target_graph}_ymax")
+
         st.session_state["plot_style_cfg"][target_graph] = {
-            "fig_w": fig_w, "fig_h": fig_h, "show_legend": show_legend, "legend_loc": legend_loc,
-            "primary_color": primary_color, "secondary_color": secondary_color, "tertiary_color": tertiary_color,
-            "band_color": band_color, "grid_alpha": grid_alpha, "line_style": LINE_STYLE_MAP[line_style_name],
-            "aux_line_style": LINE_STYLE_MAP[aux_line_style_name], "line_width": line_width,
-            "aux_line_width": aux_line_width, "marker_size": marker_size, "tick_dir": tick_dir,
-            "tick_len": tick_len, "border_width": border_width, "show_top": show_top, "show_right": show_right,
-            "x_min": x_min_cfg.strip() if isinstance(x_min_cfg, str) else x_min_cfg,
-            "x_max": x_max_cfg.strip() if isinstance(x_max_cfg, str) else x_max_cfg,
-            "y_min": y_min_cfg.strip() if isinstance(y_min_cfg, str) else y_min_cfg,
-            "y_max": y_max_cfg.strip() if isinstance(y_max_cfg, str) else y_max_cfg,
+            "fig_w": fig_w, "fig_h": fig_h,
+            "show_legend": show_legend, "legend_loc": legend_loc,
+            "primary_color": line_color, "secondary_color": secondary_color, "tertiary_color": tertiary_color,
+            "marker_color": marker_color, "line_color": line_color, "band_color": band_color,
+            "border_color": border_color, "font_color": font_color,
+            "grid_alpha": grid_alpha,
+            "line_style": LINE_STYLE_MAP[line_style_name], "aux_line_style": current_cfg.get("aux_line_style", "--"),
+            "line_width": line_width, "aux_line_width": aux_line_width,
+            "marker_size": marker_size, "marker_style": marker_style,
+            "tick_dir": tick_dir, "tick_len": tick_len, "border_width": border_width,
+            "show_top": show_top, "show_right": show_right, "axis_type": axis_type,
+            "font_family": font_family, "font_size": font_size, "title_size": title_size, "label_size": label_size,
+            "tick_label_size": max(6, font_size - 1),
+            "x_min": x_min_cfg.strip(), "x_max": x_max_cfg.strip(), "y_min": y_min_cfg.strip(), "y_max": y_max_cfg.strip(),
             "arrow_size": arrow_size,
         }
-        if st.button("Reset selected graph style", key=f"reset_style_{target_graph}"):
-            st.session_state["plot_style_cfg"][target_graph] = {} if target_graph != "All graphs" else DEFAULT_STYLE_CFG.copy()
-            st.rerun()
-    _all_cfg = get_plot_cfg("All graphs")
+        r1, r2 = st.columns(2)
+        with r1:
+            if st.button("Reset selected graph style", key=f"reset_style_{target_graph}"):
+                st.session_state["plot_style_cfg"][target_graph] = {} if target_graph != "All graphs" else DEFAULT_STYLE_CFG.copy()
+                st.rerun()
+        with r2:
+            if st.button("Reset all graph styles", key="reset_all_graph_styles"):
+                st.session_state["plot_style_cfg"] = {k: {} for k in PLOT_STYLE_KEYS}
+                st.session_state["plot_style_cfg"]["All graphs"] = DEFAULT_STYLE_CFG.copy()
+                st.rerun()
+
+    _all_cfg = safe_get_plot_cfg("All graphs")
     FIG_W = _all_cfg["fig_w"]; FIG_H = _all_cfg["fig_h"]; SHOW_LEGEND = _all_cfg["show_legend"]; LEGEND_LOC = _all_cfg["legend_loc"]
-    PRIMARY_COLOR = _all_cfg["primary_color"]; SECONDARY_COLOR = _all_cfg["secondary_color"]; TERTIARY_COLOR = _all_cfg["tertiary_color"]
+    PRIMARY_COLOR = _all_cfg["line_color"]; SECONDARY_COLOR = _all_cfg["secondary_color"]; TERTIARY_COLOR = _all_cfg["tertiary_color"]
     BAND_COLOR = _all_cfg["band_color"]; GRID_ALPHA = _all_cfg["grid_alpha"]; MARKER_SIZE = _all_cfg["marker_size"]
-    FIT_LINE_COLOR = _all_cfg["primary_color"]; FIT_LINE_STYLE = _all_cfg["line_style"]; LINE_WIDTH = _all_cfg["line_width"]
-    AREA_ALPHA = 0.18; CI_LINE_STYLE = _all_cfg["aux_line_style"]; PI_LINE_STYLE = _all_cfg["aux_line_style"]; SPEC_LINE_STYLE = _all_cfg["aux_line_style"]
-    ARROW_SIZE = _all_cfg["arrow_size"]
-    st.sidebar.divider()
-    st.sidebar.info("Paste data from Excel. Tables, charts, Excel exports, and PDF-style reports are built into the app. Exported figures keep the current display settings.")
+    FIT_LINE_COLOR = _all_cfg["line_color"]; FIT_LINE_STYLE = _all_cfg["line_style"]; LINE_WIDTH = _all_cfg["line_width"]; AREA_ALPHA = 0.16
+    CI_LINE_STYLE = _all_cfg["aux_line_style"]; PI_LINE_STYLE = _all_cfg["aux_line_style"]; SPEC_LINE_STYLE = _all_cfg["aux_line_style"]; ARROW_SIZE = _all_cfg["arrow_size"]
+
+
+def fig_to_png_bytes(fig):
+    bio = BytesIO()
+    fig.savefig(bio, format="png", dpi=320, bbox_inches="tight", facecolor="white")
+    bio.seek(0)
+    return bio.getvalue()
+
 
 # -------------------------------------------------
-# UI helpers
+# PDF report generation
 # -------------------------------------------------
+def _pdf_table(df, styles, title, decimals=3, max_rows=40):
+    story = []
+    story.append(Paragraph(title, styles["Heading3"]))
+    if len(df) > max_rows:
+        story.append(Paragraph(f"Table truncated to first {max_rows} rows for compact reporting.", styles["BodyText"]))
+        df = df.head(max_rows)
+    fmt_df = df.copy()
+    for c in fmt_df.columns:
+        if pd.api.types.is_numeric_dtype(fmt_df[c]):
+            fmt_df[c] = fmt_df[c].map(lambda x: "-" if pd.isna(x) else f"{x:.{decimals}f}")
+        else:
+            fmt_df[c] = fmt_df[c].fillna("-").astype(str)
+    data = [list(fmt_df.columns)] + fmt_df.values.tolist()
+    ncols = max(1, len(fmt_df.columns))
+    page_w = 27.5 * cm
+    col_width = page_w / ncols
+    tbl = Table(data, repeatRows=1, colWidths=[col_width] * ncols)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F8FAFC")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("LEADING", (0, 0), (-1, -1), 10),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LINEABOVE", (0, 0), (-1, 0), 1.2, colors.black),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.8, colors.black),
+        ("LINEBELOW", (0, -1), (-1, -1), 1.2, colors.black),
+    ]))
+    story.extend([tbl, Spacer(1, 0.35 * cm)])
+    return story
+
+
+def make_pdf_report(report_title, module_name, statistical_analysis, offer_text, python_tools, tables, figures, conclusion=None, decimals=3):
+    bio = BytesIO()
+    doc = SimpleDocTemplate(
+        bio,
+        pagesize=landscape(A4),
+        leftMargin=1.2 * cm,
+        rightMargin=1.2 * cm,
+        topMargin=1.2 * cm,
+        bottomMargin=1.1 * cm,
+    )
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="SmallBody", parent=styles["BodyText"], fontSize=9, leading=12, alignment=TA_LEFT))
+    story = []
+
+    story.append(Paragraph(report_title, styles["Title"]))
+    story.append(Spacer(1, 0.15 * cm))
+    story.append(Paragraph(f"Module: <b>{module_name}</b>", styles["Heading2"]))
+    story.append(Spacer(1, 0.15 * cm))
+    story.append(Paragraph("Statistical Analysis", styles["Heading2"]))
+    story.append(Paragraph(statistical_analysis, styles["SmallBody"]))
+    story.append(Spacer(1, 0.15 * cm))
+    story.append(Paragraph("What this analysis offers", styles["Heading2"]))
+    story.append(Paragraph(offer_text, styles["SmallBody"]))
+    story.append(Spacer(1, 0.15 * cm))
+    story.append(Paragraph("Python tools used", styles["Heading2"]))
+    story.append(Paragraph(python_tools, styles["SmallBody"]))
+    if conclusion:
+        story.append(Spacer(1, 0.15 * cm))
+        story.append(Paragraph("Conclusion", styles["Heading2"]))
+        story.append(Paragraph(conclusion, styles["SmallBody"]))
+    story.append(Spacer(1, 0.2 * cm))
+
+    if tables:
+        story.append(Paragraph("Tables", styles["Heading2"]))
+        for caption, df in tables:
+            story.extend(_pdf_table(df, styles, caption, decimals=decimals))
+
+    if figures:
+        story.append(PageBreak())
+        story.append(Paragraph("Figures", styles["Heading2"]))
+        for caption, fig_bytes in figures:
+            story.append(Paragraph(caption, styles["Heading3"]))
+            img = Image(BytesIO(fig_bytes))
+            img._restrictSize(24.5 * cm, 13.5 * cm)
+            story.append(img)
+            story.append(Spacer(1, 0.3 * cm))
+
+    doc.build(story)
+    bio.seek(0)
+    return bio.getvalue()
+
+
+def export_results(prefix, report_title, module_name, statistical_analysis, offer_text, python_tools, table_map, figure_map=None, conclusion=None, decimals=None):
+    decimals = DEFAULT_DECIMALS if decimals is None else decimals
+    figure_map = figure_map or {}
+    c1, c2 = st.columns(2)
+    excel_bytes = make_excel_bytes(table_map)
+    pdf_bytes = make_pdf_report(
+        report_title=report_title,
+        module_name=module_name,
+        statistical_analysis=statistical_analysis,
+        offer_text=offer_text,
+        python_tools=python_tools,
+        tables=list(table_map.items()),
+        figures=list(figure_map.items()),
+        conclusion=conclusion,
+        decimals=decimals,
+    )
+    with c1:
+        st.download_button("Download Excel workbook", excel_bytes, file_name=f"{prefix}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    with c2:
+        st.download_button("Download PDF-style report", pdf_bytes, file_name=f"{prefix}.pdf", mime="application/pdf")
+
+
+# -------------------------------------------------
+# Plot helpers
+# -------------------------------------------------
+
+def apply_ax_style(ax, title, xlabel, ylabel, legend=None, plot_key="All graphs"):
+    cfg = safe_get_plot_cfg(plot_key)
+    ax.set_title(title, fontsize=cfg["title_size"], color=cfg["font_color"], fontfamily=cfg["font_family"])
+    ax.set_xlabel(xlabel, fontsize=cfg["label_size"], color=cfg["font_color"], fontfamily=cfg["font_family"])
+    ax.set_ylabel(ylabel, fontsize=cfg["label_size"], color=cfg["font_color"], fontfamily=cfg["font_family"])
+    ax.grid(True, alpha=cfg["grid_alpha"])
+    ax.tick_params(direction=cfg["tick_dir"], length=cfg["tick_len"], width=cfg["border_width"], colors=cfg["font_color"], labelsize=cfg["tick_label_size"])
+    for lab in ax.get_xticklabels() + ax.get_yticklabels():
+        lab.set_fontfamily(cfg["font_family"])
+        lab.set_color(cfg["font_color"])
+    for spine_name, spine in ax.spines.items():
+        spine.set_linewidth(cfg["border_width"])
+        spine.set_color(cfg["border_color"])
+    if cfg.get("axis_type") == "left-bottom only":
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+    elif cfg.get("axis_type") == "boxed":
+        ax.spines["top"].set_visible(True)
+        ax.spines["right"].set_visible(True)
+    else:
+        ax.spines["top"].set_visible(cfg.get("show_top", True))
+        ax.spines["right"].set_visible(cfg.get("show_right", True))
+    if cfg["x_min"] is not None or cfg["x_max"] is not None:
+        ax.set_xlim(left=cfg["x_min"], right=cfg["x_max"])
+    if cfg["y_min"] is not None or cfg["y_max"] is not None:
+        ax.set_ylim(bottom=cfg["y_min"], top=cfg["y_max"])
+    if legend is None:
+        legend = cfg["show_legend"]
+    if cfg["show_legend"] and legend:
+        handles, labels = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend(frameon=False, loc=cfg["legend_loc"], prop={"family": cfg["font_family"], "size": max(8, cfg["font_size"] - 1)})
+    fig = ax.figure
+    fig.tight_layout(pad=1.0)
+
+
+def residual_plot(fitted, residuals, xlabel="Fitted", ylabel="Residuals", title="Residuals vs fitted"):
+    cfg = get_plot_cfg("Residual plot")
+    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+    ax.scatter(fitted, residuals, color=cfg.get("marker_color", cfg["primary_color"]), s=cfg["marker_size"], marker=cfg.get("marker_style", "o"))
+    ax.axhline(0, color="#111827", ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
+    apply_ax_style(ax, title, xlabel, ylabel, plot_key="Residual plot")
+    return fig
+
+
+def qq_plot(residuals, title="Normal probability plot of residuals"):
+    cfg = get_plot_cfg("Q-Q plot")
+    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+    stats.probplot(residuals, dist="norm", plot=ax)
+    if len(ax.lines) >= 2:
+        ax.lines[0].set_marker(cfg.get("marker_style", "o"))
+        ax.lines[0].set_linestyle("None")
+        ax.lines[0].set_color(cfg["primary_color"])
+        ax.lines[0].set_markersize(max(3, cfg["marker_size"] / 12))
+        ax.lines[1].set_color(cfg["secondary_color"])
+        ax.lines[1].set_linestyle(cfg["aux_line_style"])
+        ax.lines[1].set_linewidth(cfg["aux_line_width"])
+    apply_ax_style(ax, title, "Theoretical quantiles", "Ordered residuals", plot_key="Q-Q plot")
+    return fig
+
+
+def tol_interval_normal(x, coverage=0.99, confidence=0.95):
+    x = np.asarray(x, dtype=float)
+    x = x[np.isfinite(x)]
+    n = len(x)
+    if n < 2:
+        return np.nan, np.nan, np.nan
+    mean = np.mean(x)
+    sd = np.std(x, ddof=1)
+    nu = n - 1
+    z_p = norm.ppf((1 + coverage) / 2)
+    chi = stats.chi2.ppf(confidence, nu)
+    if chi <= 0:
+        return mean, np.nan, np.nan
+    k = z_p * np.sqrt(nu * (1 + 1 / n) / chi)
+    return mean, mean - k * sd, mean + k * sd
+
+
+def tolerance_interval_normal(data, p=0.95, conf=0.95, two_sided=True):
+    data = np.asarray(data, dtype=float)
+    data = data[np.isfinite(data)]
+    if len(data) < 2:
+        return np.nan, np.nan, np.nan
+    # current app uses only the two-sided version in downstream modules
+    if two_sided:
+        return tol_interval_normal(data, coverage=p, confidence=conf)
+    n = len(data)
+    mean = np.mean(data)
+    sd = np.std(data, ddof=1)
+    zp = norm.ppf(p)
+    k = nct.ppf(conf, n - 1, np.sqrt(n) * zp) / np.sqrt(n)
+    return mean, mean - k * sd, mean + k * sd
+
+
+def draw_conf_ellipse(scores, ax, edgecolor=PRIMARY_COLOR, facecolor=None, plot_key="PCA score plot"):
+    scores = np.asarray(scores, dtype=float)
+    if scores.shape[0] < 3:
+        return
+    cov = np.cov(scores.T)
+    vals, vecs = np.linalg.eigh(cov)
+    order = vals.argsort()[::-1]
+    vals, vecs = vals[order], vecs[:, order]
+    theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
+    q = stats.chi2.ppf(0.95, 2)
+    width, height = 2 * np.sqrt(vals * q)
+    cfg = safe_get_plot_cfg(plot_key)
+    fc = facecolor if facecolor is not None else edgecolor
+    ell = Ellipse(
+        xy=np.mean(scores, axis=0), width=width, height=height, angle=theta,
+        edgecolor=edgecolor, facecolor=fc, alpha=0.12, lw=max(0.7, cfg["aux_line_width"]), ls=cfg["aux_line_style"]
+    )
+    ax.add_patch(ell)
+
+
+def doe_formula(safe_factors, model_type="interaction"):
+    terms = list(safe_factors)
+    if model_type in ["interaction", "quadratic"]:
+        for i in range(len(safe_factors)):
+            for j in range(i + 1, len(safe_factors)):
+                terms.append(f"{safe_factors[i]}:{safe_factors[j]}")
+    if model_type == "quadratic":
+        for f in safe_factors:
+            terms.append(f"I({f}**2)")
+    return "Response ~ " + " + ".join(terms)
+
+
+def dis_make_unique(names):
+    out = []
+    seen = {}
+    for i, n in enumerate(names):
+        n = str(n).strip()
+        if n == "" or n.lower() == "nan":
+            n = f"Col{i+1}"
+        if n in seen:
+            seen[n] += 1
+            n = f"{n}_{seen[n]}"
+        else:
+            seen[n] = 1
+        out.append(n)
+    return out
+
+
+def dis_parse_profile_table(text):
+    text = str(text).strip()
+    if not text:
+        raise ValueError("Paste a dissolution table.")
+    parsers = [
+        lambda s: pd.read_csv(StringIO(s), sep="	", header=None, engine="python"),
+        lambda s: pd.read_csv(StringIO(s), sep=",", header=None, engine="python"),
+        lambda s: pd.read_csv(StringIO(s), sep=";", header=None, engine="python"),
+    ]
+    df_raw = None
+    for parser in parsers:
+        try:
+            trial = parser(text)
+            if trial.shape[1] >= 2:
+                df_raw = trial.copy()
+                break
+        except Exception:
+            pass
+    if df_raw is None or df_raw.shape[1] < 2:
+        raise ValueError("Could not read the pasted table. Use at least 2 columns: Time and one or more units.")
+    df_raw = df_raw.dropna(how="all").reset_index(drop=True)
+    first_row = df_raw.iloc[0].astype(str).str.strip()
+    first_row_numeric = pd.to_numeric(first_row, errors="coerce").notna().all()
+    if first_row_numeric:
+        df = df_raw.copy()
+        df.columns = ["Time"] + [f"Unit{i}" for i in range(1, df.shape[1])]
+    else:
+        df = df_raw.iloc[1:].reset_index(drop=True).copy()
+        header = dis_make_unique(first_row.tolist())
+        df.columns = header
+        df.rename(columns={df.columns[0]: "Time"}, inplace=True)
+    df.columns = dis_make_unique(df.columns)
+    df["Time"] = to_numeric(df["Time"])
+    unit_cols = [c for c in df.columns if c != "Time"]
+    for c in unit_cols:
+        df[c] = to_numeric(df[c])
+    df = df.dropna(subset=["Time"]).copy()
+    df = df.loc[df[unit_cols].notna().any(axis=1)].copy()
+    df = df.sort_values("Time").reset_index(drop=True)
+    if len(df) == 0:
+        raise ValueError("No valid dissolution rows found after cleaning.")
+    return df
+
+
+def dis_get_unit_cols(df):
+    return [c for c in df.columns if c != "Time"]
+
+
+def dis_profile_summary(df):
+    unit_cols = dis_get_unit_cols(df)
+    out = pd.DataFrame({"Time": df["Time"].to_numpy()})
+    values = df[unit_cols].to_numpy(dtype=float)
+    out["n_units"] = np.sum(np.isfinite(values), axis=1)
+    out["mean"] = np.nanmean(values, axis=1)
+    out["sd"] = np.nanstd(values, axis=1, ddof=1)
+    out.loc[out["n_units"] <= 1, "sd"] = np.nan
+    out["cv_pct"] = 100 * out["sd"] / out["mean"]
+    out.loc[out["mean"] == 0, "cv_pct"] = np.nan
+    return out
+
+
+def dis_merge_profiles(ref_summary, test_summary):
+    merged = ref_summary.merge(test_summary, on="Time", how="inner", suffixes=("_ref", "_test"))
+    merged = merged.sort_values("Time").reset_index(drop=True)
+    if len(merged) == 0:
+        raise ValueError("Reference and Test have no common timepoints.")
+    return merged
+
+
+def dis_select_points(merged, include_zero=True, cutoff_mode="all", threshold=85.0):
+    use = merged.copy()
+    if not include_zero:
+        use = use.loc[use["Time"] != 0].copy()
+    if len(use) == 0:
+        raise ValueError("No timepoints left after filtering.")
+    first_both_ge_idx = None
+    for i in range(len(use)):
+        if use.loc[i, "mean_ref"] >= threshold and use.loc[i, "mean_test"] >= threshold:
+            first_both_ge_idx = i
+            break
+    if cutoff_mode == "apply_85" and first_both_ge_idx is not None:
+        use = use.iloc[:first_both_ge_idx + 1].copy()
+    if len(use) < 3:
+        raise ValueError("At least 3 selected timepoints are needed to calculate f2.")
+    return use.reset_index(drop=True), first_both_ge_idx
+
+
+def dis_calc_f2(ref_means, test_means):
+    ref_means = np.asarray(ref_means, dtype=float)
+    test_means = np.asarray(test_means, dtype=float)
+    if len(ref_means) < 1:
+        return np.nan
+    msd = np.mean((ref_means - test_means) ** 2)
+    return 50 * np.log10(100 / np.sqrt(1 + msd))
+
+
+def dis_get_selected_matrix(df, selected_times):
+    sub = df[df["Time"].isin(selected_times)].copy().sort_values("Time").reset_index(drop=True)
+    times_sorted = np.sort(np.asarray(selected_times, dtype=float))
+    if len(sub) != len(times_sorted) or not np.allclose(sub["Time"].to_numpy(dtype=float), times_sorted):
+        raise ValueError("Selected timepoints could not be aligned back to the original profile table.")
+    unit_cols = dis_get_unit_cols(df)
+    return sub[unit_cols].to_numpy(dtype=float), unit_cols
+
+
+def dis_fda_checks(ref_df, test_df, selected, threshold=85.0, include_zero=False):
+    ref_units = len(dis_get_unit_cols(ref_df))
+    test_units = len(dis_get_unit_cols(test_df))
+    same_original_times = np.array_equal(np.sort(ref_df["Time"].to_numpy(dtype=float)), np.sort(test_df["Time"].to_numpy(dtype=float)))
+    at_least_12 = (ref_units >= 12) and (test_units >= 12)
+    at_least_3_points = len(selected) >= 3
+    both_ge = (selected["mean_ref"] >= threshold) & (selected["mean_test"] >= threshold)
+    n_post85_kept = int(both_ge.sum())
+    one_post85_ok = n_post85_kept <= 1
+
+    selected_nonzero = selected[selected["Time"] > 0].copy()
+    if include_zero:
+        selected_nonzero = selected.copy()
+
+    early_cv_ref = early_cv_test = later_max_cv_ref = later_max_cv_test = np.nan
+    cv_ok = True
+    if len(selected_nonzero) > 0:
+        early_cv_ref = selected_nonzero.iloc[0]["cv_pct_ref"]
+        early_cv_test = selected_nonzero.iloc[0]["cv_pct_test"]
+        later_ref = selected_nonzero.iloc[1:]["cv_pct_ref"].dropna()
+        later_test = selected_nonzero.iloc[1:]["cv_pct_test"].dropna()
+        later_max_cv_ref = later_ref.max() if len(later_ref) > 0 else np.nan
+        later_max_cv_test = later_test.max() if len(later_test) > 0 else np.nan
+        if pd.notna(early_cv_ref) and early_cv_ref > 20:
+            cv_ok = False
+        if pd.notna(early_cv_test) and early_cv_test > 20:
+            cv_ok = False
+        if pd.notna(later_max_cv_ref) and later_max_cv_ref > 10:
+            cv_ok = False
+        if pd.notna(later_max_cv_test) and later_max_cv_test > 10:
+            cv_ok = False
+
+    fda_tbl = pd.DataFrame([
+        {"Criterion": "Same original timepoints in both profiles", "Pass": "Yes" if same_original_times else "No"},
+        {"Criterion": "At least 12 units in Reference and Test", "Pass": "Yes" if at_least_12 else "No"},
+        {"Criterion": "At least 3 selected timepoints for f2", "Pass": "Yes" if at_least_3_points else "No"},
+        {"Criterion": "No more than one selected point after both are ≥ threshold", "Pass": "Yes" if one_post85_ok else "No"},
+        {"Criterion": "CV at earlier selected timepoint ≤ 20% and later ≤ 10%", "Pass": "Yes" if cv_ok else "No"},
+    ])
+    detail_tbl = pd.DataFrame([{
+        "Reference units": ref_units,
+        "Test units": test_units,
+        "Selected timepoints": len(selected),
+        "Selected points where both ≥ threshold": n_post85_kept,
+        "Earlier CV ref": early_cv_ref,
+        "Earlier CV test": early_cv_test,
+        "Later max CV ref": later_max_cv_ref,
+        "Later max CV test": later_max_cv_test,
+    }])
+    conventional_ok = bool((fda_tbl["Pass"] == "Yes").all())
+    return fda_tbl, detail_tbl, conventional_ok
+
+
+def dis_bootstrap_f2(ref_mat, test_mat, n_boot=2000, seed=123):
+    rng = np.random.default_rng(seed)
+    n_ref = ref_mat.shape[1]
+    n_test = test_mat.shape[1]
+    out = np.empty(n_boot, dtype=float)
+    for b in range(n_boot):
+        idx_ref = rng.integers(0, n_ref, size=n_ref)
+        idx_test = rng.integers(0, n_test, size=n_test)
+        ref_mean = np.nanmean(ref_mat[:, idx_ref], axis=1)
+        test_mean = np.nanmean(test_mat[:, idx_test], axis=1)
+        out[b] = dis_calc_f2(ref_mean, test_mean)
+    return out
+
+
+def dis_jackknife_f2(ref_mat, test_mat):
+    vals = []
+    n_ref = ref_mat.shape[1]
+    n_test = test_mat.shape[1]
+    for j in range(n_ref):
+        keep = [i for i in range(n_ref) if i != j]
+        if len(keep) >= 1:
+            vals.append(dis_calc_f2(np.nanmean(ref_mat[:, keep], axis=1), np.nanmean(test_mat, axis=1)))
+    for j in range(n_test):
+        keep = [i for i in range(n_test) if i != j]
+        if len(keep) >= 1:
+            vals.append(dis_calc_f2(np.nanmean(ref_mat, axis=1), np.nanmean(test_mat[:, keep], axis=1)))
+    return np.asarray(vals, dtype=float)
+
+
+def dis_bca_interval(theta_hat, boot_vals, jack_vals, conf=0.90):
+    boot_vals = np.asarray(boot_vals, dtype=float)
+    boot_vals = boot_vals[np.isfinite(boot_vals)]
+    jack_vals = np.asarray(jack_vals, dtype=float)
+    jack_vals = jack_vals[np.isfinite(jack_vals)]
+    if len(boot_vals) < 10:
+        return np.nan, np.nan, np.nan, np.nan
+    alpha = 1 - conf
+    prop_less = np.mean(boot_vals < theta_hat)
+    eps = 1 / (2 * len(boot_vals))
+    prop_less = np.clip(prop_less, eps, 1 - eps)
+    z0 = norm.ppf(prop_less)
+    if len(jack_vals) < 3:
+        a = 0.0
+    else:
+        jack_mean = np.mean(jack_vals)
+        num = np.sum((jack_mean - jack_vals) ** 3)
+        den = 6 * (np.sum((jack_mean - jack_vals) ** 2) ** 1.5)
+        a = num / den if den > 0 else 0.0
+    z_low = norm.ppf(alpha / 2)
+    z_high = norm.ppf(1 - alpha / 2)
+    adj_low = norm.cdf(z0 + (z0 + z_low) / (1 - a * (z0 + z_low)))
+    adj_high = norm.cdf(z0 + (z0 + z_high) / (1 - a * (z0 + z_high)))
+    low = np.quantile(boot_vals, adj_low)
+    high = np.quantile(boot_vals, adj_high)
+    return low, high, z0, a
+
+
+def dis_percentile_interval(boot_vals, conf=0.90):
+    alpha = 1 - conf
+    return np.quantile(boot_vals, alpha / 2), np.quantile(boot_vals, 1 - alpha / 2)
+
+
+def dis_plot_profiles(ref_df, test_df, ref_summary, test_summary, selected, show_units=True, title="Dissolution Profiles", ylabel="% Dissolved"):
+    cfg = get_plot_cfg("Dissolution comparison")
+    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+    ref_unit_cols = dis_get_unit_cols(ref_df)
+    test_unit_cols = dis_get_unit_cols(test_df)
+    c_ref = cfg["primary_color"]
+    c_test = cfg["secondary_color"]
+    sel_ms = max(40, int(cfg["marker_size"] * 1.8))
+    if show_units:
+        for c in ref_unit_cols:
+            ax.plot(ref_df["Time"], ref_df[c], color=c_ref, alpha=0.15, linewidth=max(0.8, cfg["aux_line_width"]))
+        for c in test_unit_cols:
+            ax.plot(test_df["Time"], test_df[c], color=c_test, alpha=0.15, linewidth=max(0.8, cfg["aux_line_width"]))
+    ax.plot(ref_summary["Time"], ref_summary["mean"], marker="o", color=c_ref, linewidth=cfg["line_width"], markersize=max(4, int(cfg["marker_size"] ** 0.5)), linestyle=cfg["line_style"], label="Reference Mean")
+    ax.plot(test_summary["Time"], test_summary["mean"], marker="o", color=c_test, linewidth=cfg["line_width"], markersize=max(4, int(cfg["marker_size"] ** 0.5)), linestyle=cfg["line_style"], label="Test Mean")
+    ax.scatter(selected["Time"], selected["mean_ref"], marker="s", edgecolor="black", facecolor="none", s=sel_ms, linewidth=1.2, label="Selected Ref Points", zorder=4)
+    ax.scatter(selected["Time"], selected["mean_test"], marker="s", edgecolor="black", facecolor="none", s=sel_ms, linewidth=1.2, label="Selected Test Points", zorder=4)
+    apply_ax_style(ax, title, "Time", ylabel, legend=True, plot_key="Dissolution comparison")
+    return fig
+
+
+def dis_plot_bootstrap_f2_distribution(boot_vals, observed_f2, ci_low=None, ci_high=None, ci_label="90% CI", title="Distribution of f2 Similarity Factor", x_min=50, x_max=100):
+    cfg = get_plot_cfg("Dissolution comparison")
+    boot_vals = np.asarray(boot_vals, dtype=float)
+    boot_vals = boot_vals[np.isfinite(boot_vals)]
+    if len(boot_vals) < 5:
+        return None
+    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+    sd_boot = np.std(boot_vals, ddof=1)
+    if sd_boot > 0:
+        kde = gaussian_kde(boot_vals)
+        x_lo = min(x_min, np.min(boot_vals) - 2 * sd_boot, observed_f2 - 5)
+        x_hi = max(x_max, np.max(boot_vals) + 2 * sd_boot, observed_f2 + 5)
+        if ci_low is not None:
+            x_lo = min(x_lo, ci_low - 3)
+        if ci_high is not None:
+            x_hi = max(x_hi, ci_high + 3)
+        x_grid = np.linspace(x_lo, x_hi, 600)
+        y_grid = kde(x_grid)
+        ax.fill_between(x_grid, y_grid, color=cfg["band_color"], alpha=0.15)
+        ax.plot(x_grid, y_grid, color=cfg["primary_color"], linewidth=cfg["line_width"], linestyle=cfg["line_style"])
+        y_top = float(np.max(y_grid))
+    else:
+        ax.axvline(observed_f2, color=cfg["primary_color"], linewidth=cfg["line_width"])
+        y_top = 1.0
+    ax.axvline(observed_f2, color=cfg["primary_color"], linestyle=cfg["aux_line_style"], linewidth=cfg["aux_line_width"])
+    if ci_low is not None:
+        ax.axvline(ci_low, color=cfg["tertiary_color"], linestyle=cfg["aux_line_style"], linewidth=cfg["line_width"])
+    if ci_high is not None:
+        ax.axvline(ci_high, color=cfg["tertiary_color"], linestyle=cfg["aux_line_style"], linewidth=cfg["line_width"])
+    ax.text(observed_f2 - 0.8, y_top * 0.52, f"Original f2: {observed_f2:.1f}", rotation=90, ha="right", va="center", fontsize=10, color=cfg["primary_color"], weight="bold", bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=2))
+    if ci_low is not None:
+        ax.text(ci_low - 0.8, y_top * 0.58, f"{ci_label} Lower: {ci_low:.1f}", rotation=90, ha="right", va="center", fontsize=10, color=cfg["tertiary_color"], weight="bold", bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=2))
+    if ci_high is not None:
+        ax.text(ci_high + 0.8, y_top * 0.58, f"{ci_label} Upper: {ci_high:.1f}", rotation=90, ha="left", va="center", fontsize=10, color=cfg["tertiary_color"], weight="bold", bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=2))
+    apply_ax_style(ax, title, "f2 values", "Density", legend=False, plot_key="Dissolution comparison")
+    ax.set_xlim(x_min, x_max)
+    return fig
+
+
+
+# -------------------------------------------------
+
+
+
 def app_header(title, subtitle=""):
     st.markdown(
         f"""
@@ -1102,4 +1722,5 @@ def dis_plot_bootstrap_f2_distribution(boot_vals, observed_f2, ci_low=None, ci_h
 # -------------------------------------------------
 
 
-__all__ = [name for name in globals() if not name.startswith("_")]
+
+__all__ = [name for name in globals() if not name.startswith('_')]
