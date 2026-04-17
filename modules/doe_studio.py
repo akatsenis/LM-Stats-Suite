@@ -232,17 +232,19 @@ def render():
                     safe_grid = grid.rename(columns=rename_map)
                     zz = model.predict(safe_grid).to_numpy().reshape(xx.shape)
 
-                    fig_contour, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+                    contour_cfg = common.safe_get_plot_cfg("DoE contour")
+                    fig_contour, ax = plt.subplots(figsize=(contour_cfg["fig_w"], contour_cfg["fig_h"]))
                     cs = ax.contourf(xx, yy, zz, levels=20, cmap="viridis")
                     fig_contour.colorbar(cs, ax=ax, label=response)
-                    ax.scatter(d[xfac], d[yfac], c="white", edgecolor="black", s=34)
-                    apply_ax_style(ax, f"Contour plot for {response}", xfac, yfac)
+                    ax.scatter(d[xfac], d[yfac], c="white", edgecolor="black", s=contour_cfg["marker_size"])
+                    apply_ax_style(ax, f"Contour plot for {response}", xfac, yfac, plot_key="DoE contour")
                     st.pyplot(fig_contour)
 
-                    fig_surface = plt.figure(figsize=(FIG_W, FIG_H + 0.5))
+                    surface_cfg = common.safe_get_plot_cfg("DoE surface")
+                    fig_surface = plt.figure(figsize=(surface_cfg["fig_w"], surface_cfg["fig_h"] + 0.3))
                     ax3 = fig_surface.add_subplot(111, projection="3d")
                     surf = ax3.plot_surface(xx, yy, zz, cmap="viridis", edgecolor="none", alpha=0.88)
-                    ax3.scatter(d[xfac], d[yfac], d[response], c="black", s=26)
+                    ax3.scatter(d[xfac], d[yfac], d[response], c=surface_cfg.get("marker_color", "black"), s=surface_cfg["marker_size"])
                     ax3.set_xlabel(xfac)
                     ax3.set_ylabel(yfac)
                     ax3.set_zlabel(response)
@@ -250,9 +252,9 @@ def render():
                     fig_surface.colorbar(surf, ax=ax3, shrink=0.68, aspect=12)
                     st.pyplot(fig_surface)
 
-                    fig_res = residual_plot(model.fittedvalues, model.resid, xlabel="Fitted values", ylabel="Residuals", title="Residuals vs fitted")
+                    fig_res = common.residual_plot_for("DoE residual plot", model.fittedvalues, model.resid, xlabel="Fitted values", ylabel="Residuals", title="Residuals vs fitted")
                     st.pyplot(fig_res)
-                    fig_qq = qq_plot(model.resid, title="Normal probability plot of DoE residuals")
+                    fig_qq = common.qq_plot_for("DoE Q-Q plot", model.resid, title="Normal probability plot of DoE residuals")
                     st.pyplot(fig_qq)
 
                     export_results(
