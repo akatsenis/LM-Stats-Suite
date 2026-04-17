@@ -560,8 +560,8 @@ def render():
                         txt = str(txt).strip()
                         return None if txt == "" else float(txt)
     
-                    x_min = parse_optional_float(x_min_txt)
-                    x_max = parse_optional_float(x_max_txt)
+                    x_min = common.parse_optional_float(x_min_txt)
+                    x_max = common.parse_optional_float(x_max_txt)
                     if x_min is None:
                         x_min = min(0.0, float(data_df["x"].min()))
                     if x_max is None:
@@ -586,7 +586,7 @@ def render():
                         point_label=point_label,
                         y_suffix=y_suffix,
                         spec_enabled=spec_enabled,
-                        spec_limit=parse_optional_float(spec_value_txt) if spec_enabled else None,
+                        spec_limit=common.parse_optional_float(spec_value_txt) if spec_enabled else None,
                         spec_label=spec_label,
                         crossing_on=crossing_on,
                     )
@@ -837,14 +837,14 @@ def render():
                 xlabel = xlabel_override.strip() or x_label_from_header or "Time"
                 ylabel = ylabel_override.strip() or y_label_from_header or "Response"
                 pred_x = parse_x_values(pred_x_text)
-                spec_limit = parse_optional_float(spec_value_txt)
+                spec_limit = common.parse_optional_float(spec_value_txt)
                 if spec_limit is None:
                     raise ValueError("Enter a valid specification value.")
     
                 x_data_max = float(data_df["x"].max())
                 x_future_max = float(np.max(pred_x)) if len(pred_x) > 0 else x_data_max
-                x_min = parse_optional_float(x_min_txt)
-                x_max = parse_optional_float(x_max_txt)
+                x_min = common.parse_optional_float(x_min_txt)
+                x_max = common.parse_optional_float(x_max_txt)
                 if x_min is None:
                     x_min = min(0.0, float(data_df["x"].min()))
                 if x_max is None:
