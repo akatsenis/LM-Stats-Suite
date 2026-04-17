@@ -203,6 +203,31 @@ def render_display_settings():
     st.sidebar.divider()
     st.sidebar.info("Paste data from Excel. Tables, charts, Excel exports, and PDF-style reports are built into the app. Exported figures keep the current display settings.")
 
+def _parse_style_float(val):
+    if val is None:
+        return None
+    if isinstance(val, (int, float, np.number)):
+        return float(val)
+    s = str(val).strip()
+    if s == "":
+        return None
+    try:
+        return float(s)
+    except Exception:
+        return None
+
+def get_plot_cfg(plot_key="All graphs"):
+    cfg = DEFAULT_STYLE_CFG.copy()
+    cfg.update(st.session_state.get("plot_style_cfg", {}).get("All graphs", {}))
+    if plot_key and plot_key != "All graphs":
+        specific = st.session_state.get("plot_style_cfg", {}).get(plot_key, {})
+        cfg.update({k: v for k, v in specific.items() if v not in [None, ""]})
+    cfg["x_min"] = _parse_style_float(cfg.get("x_min"))
+    cfg["x_max"] = _parse_style_float(cfg.get("x_max"))
+    cfg["y_min"] = _parse_style_float(cfg.get("y_min"))
+    cfg["y_max"] = _parse_style_float(cfg.get("y_max"))
+    return cfg
+
 # -------------------------------------------------
 # UI helpers
 # -------------------------------------------------
