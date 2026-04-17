@@ -1077,3 +1077,12 @@ def dis_plot_bootstrap_f2_distribution(boot_vals, observed_f2, ci_low=None, ci_h
 
 
 # -------------------------------------------------
+
+
+def safe_get_plot_cfg(plot_key="All graphs"):
+    try:
+        return get_plot_cfg(plot_key)
+    except Exception:
+        return DEFAULT_STYLE_CFG.copy()
+
+__all__ = [name for name in globals() if not name.startswith("_")]
