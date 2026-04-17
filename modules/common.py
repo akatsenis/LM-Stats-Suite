@@ -375,7 +375,7 @@ def parse_xy(text):
     if len(raw) < 3 or raw["x"].nunique() < 2:
         raise ValueError("At least 3 valid rows and 2 unique X values are required.")
     return raw, x_label, y_label
-
+    
 
 def parse_x_values(text):
     text = str(text).strip()
