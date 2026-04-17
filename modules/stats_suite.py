@@ -501,10 +501,10 @@ def render():
     
     # -------------------------------------------------
 
-    # App 02 Regression Intervals
+    # App 02 Regression Analysis
     # -------------------------------------------------
     if tool == "02 - Regression Intervals":
-        app_header("📈 App 02 - Regression Intervals", "Linear regression with CI / PI / both, one-sided or two-sided bands, prediction points, and spec-limit crossing.")
+        app_header("📈 App 02 - Regression Analysis", "Linear regression with CI / PI / both, one-sided or two-sided bands, prediction points, and spec-limit crossing.")
     
         left, right = st.columns([1.45, 1])
         with left:
@@ -606,7 +606,17 @@ def render():
                         crossing_on=crossing_on,
                     )
                     st.pyplot(fig_main)
-    
+
+                    reg_alpha = st.number_input(
+                       "Trend test α",
+                        min_value=0.0001,
+                        max_value=0.2000,
+                        value=0.0500,
+                        step=0.0050,
+                        format="%.4f",
+                        key="reg_alpha_trend",
+                    )
+
                     summary_tbl = pd.DataFrame({
                         "Intercept": [model["intercept"]],
                         "Slope": [model["slope"]],
