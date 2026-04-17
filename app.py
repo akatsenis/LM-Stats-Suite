@@ -1,16 +1,12 @@
-from modules.common import init_page, app_header, info_box
+from modules.common import init_page
 import streamlit as st
 
-init_page("lm Stats")
-app_header("🔬 lm Stats", "One Streamlit app with a multipage structure: Home, Stats Suite, and DoE Studio.")
-st.markdown("""
-### Welcome
-Use the page selector in the left sidebar to move between:
+init_page("lm Stats Suite")
 
-- **Home**
-- **Stats Suite**
-- **DoE Studio**
-
-This structure keeps everything under one Streamlit link while splitting the code into separate modules for easier maintenance.
-""")
-info_box("Tip: the same display/export settings are available on each page, and your graph style preferences persist in session state.")
+st.title("Welcome")
+st.markdown(
+    """
+    This app brings together practical statistical and experimental design tools for analytical, formulation, and development work, including descriptive statistics, regression, shelf-life analysis, dissolution comparison, hypothesis testing, ANOVA, PCA, and DoE.  
+    The pages are organized into Stats Suite and DoE Studio so all analyses stay under one app while remaining easy to navigate and maintain.
+    """
+)
