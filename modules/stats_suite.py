@@ -691,7 +691,9 @@ def render():
                     if crossing_x is not None:
                         summary_tbl["Crossing Point"] = [crossing_x]
                     report_table(summary_tbl, "Regression model summary", decimals)
-    
+                    report_table(reg_stats["coefficients"], "Regression coefficients", decimals)
+                    report_table(reg_stats["anova"], "Regression ANOVA", decimals)
+
                     report_table(data_df.rename(columns={"x": "X Value", "y": "Actual Y"}), "Table 1: Parsed input data", decimals)
     
                     new_pred_x = np.setdiff1d(pred_x, data_df["x"].to_numpy()) if len(pred_x) > 0 else np.array([])
