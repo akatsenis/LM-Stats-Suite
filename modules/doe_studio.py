@@ -40,9 +40,11 @@ def render():
     render_display_settings()
     st.sidebar.title("🧪 DoE Studio")
     st.sidebar.markdown("Design of Experiments")
+    app_header("🧪 DoE Studio", "Design builder and response analysis in one place.")
     tabs = st.tabs(["Design Builder", "Response Analysis"])
     with tabs[0]:
-        app_header("🧪 DoE Studio - Design Builder", "Create a basic 2-level full-factorial design with blocks, center points, replicates, and randomization.")
+        st.subheader("Design Builder")
+        info_box("Create a basic 2-level full-factorial design with blocks, center points, replicates, and randomization.")
         c1, c2 = st.columns([1,1])
         with c1:
             n_factors = st.number_input("Number of factors", min_value=2, max_value=8, value=3, step=1)
@@ -69,103 +71,10 @@ def render():
             excel_bytes = make_excel_bytes({"Design": design})
             st.download_button("Download design workbook", excel_bytes, file_name="doe_design.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             st.download_button("Download design CSV", design.to_csv(index=False).encode("utf-8"), file_name="doe_design.csv", mime="text/csv")
-    with tabs[1]:
-            app_header("🧪 App 09 - DoE / Response Surfaces", "Build a full-factorial design, assign blocks, and fit linear / interaction / quadratic response-surface models.")
-            tab_build, tab_analyze = st.tabs(["Build design", "Analyze responses"])
-        
-            with tab_build:
-                st.markdown("### Build a full-factorial DoE")
-                st.markdown("Enter factor names and low / high levels. You can add blocks, center points, replicates, and randomize the run order within block.")
-                c1, c2, c3, c4 = st.columns([0.8, 0.9, 0.9, 1])
-                with c1:
-                    n_factors = st.number_input("Number of factors", min_value=2, max_value=8, value=2, step=1)
-                with c2:
-                    n_blocks = st.number_input("Number of blocks", min_value=1, max_value=20, value=1, step=1)
-                with c3:
-                    replicates = st.number_input("Replicates / treatment / block", min_value=1, max_value=20, value=1, step=1)
-                with c4:
-                    center_points = st.number_input("Center points / block", min_value=0, max_value=20, value=0, step=1)
-        
-                factor_names_txt = st.text_input(
-                    "Factor names (comma-separated)",
-                    value=", ".join([chr(65 + i) for i in range(n_factors)])
-                )
-                factor_names = [f.strip() for f in factor_names_txt.split(",") if f.strip()]
-                if len(factor_names) != n_factors:
-                    st.warning(f"Please provide exactly {n_factors} factor names.")
-                else:
-                    st.markdown("**Low / high levels**")
-                    cols = st.columns(n_factors)
-                    low_vals, high_vals = {}, {}
-                    for i, f in enumerate(factor_names):
-                        with cols[i]:
-                            low_vals[f] = st.text_input(f"{f} low", value="-1", key=f"low_{f}")
-                            high_vals[f] = st.text_input(f"{f} high", value="1", key=f"high_{f}")
-        
-                    randomize = st.checkbox("Randomize runs within each block", value=True)
-                    random_seed = st.number_input("Random seed", min_value=0, max_value=100000, value=42, step=1) if randomize else 42
-        
-                    try:
-                        low_numeric = {f: float(low_vals[f]) for f in factor_names}
-                        high_numeric = {f: float(high_vals[f]) for f in factor_names}
-                        for f in factor_names:
-                            if high_numeric[f] == low_numeric[f]:
-                                raise ValueError(f"{f}: high level must differ from low level.")
-        
-                        coded_combos = list(product([-1, 1], repeat=n_factors))
-                        rows = []
-                        rng = np.random.default_rng(int(random_seed))
-                        for block in range(1, int(n_blocks) + 1):
-                            block_rows = []
-                            for rep in range(1, int(replicates) + 1):
-                                for combo in coded_combos:
-                                    row = {"Block": block, "Replicate": rep, "Center point": "No"}
-                                    for i, f in enumerate(factor_names):
-                                        coded = combo[i]
-                                        actual = low_numeric[f] if coded == -1 else high_numeric[f]
-                                        row[f"{f} (coded)"] = coded
-                                        row[f] = actual
-                                    block_rows.append(row)
-                            for cp in range(1, int(center_points) + 1):
-                                row = {"Block": block, "Replicate": np.nan, "Center point": f"CP{cp}"}
-                                for f in factor_names:
-                                    row[f"{f} (coded)"] = 0
-                                    row[f] = (low_numeric[f] + high_numeric[f]) / 2
-                                block_rows.append(row)
-                            if randomize:
-                                rng.shuffle(block_rows)
-                            for run_idx, row in enumerate(block_rows, start=1):
-                                row["Run"] = run_idx
-                                rows.append(row)
-        
-                        design_df = pd.DataFrame(rows)
-                        ordered_cols = ["Block", "Run", "Replicate", "Center point"]
-                        for f in factor_names:
-                            ordered_cols += [f"{f} (coded)", f]
-                        design_df = design_df[ordered_cols]
-                        report_table(design_df, "Generated DoE design", 3)
-        
-                        c_csv, c_xlsx = st.columns(2)
-                        with c_csv:
-                            st.download_button(
-                                "⬇️ Export design as CSV",
-                                data=design_df.to_csv(index=False).encode("utf-8"),
-                                file_name="doe_design.csv",
-                                mime="text/csv",
-                            )
-                        with c_xlsx:
-                            st.download_button(
-                                "⬇️ Export design as Excel",
-                                data=make_excel_bytes({"DoE Design": design_df}),
-                                file_name="doe_design.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            )
-                    except Exception as e:
-                        st.error(str(e))
-        
-            with tab_analyze:
-                st.markdown("### Analyze responses and build response surfaces")
-                data_input = st.text_area("Paste completed DoE data with headers", height=240)
+        with tabs[1]:
+        st.subheader("Response Analysis")
+        info_box("Paste completed DoE data with factor columns and one or more response columns to fit models and generate plots.")
+data_input = st.text_area("Paste completed DoE data with headers", height=240)
                 decimals = st.slider("Decimals", 1, 8, DEFAULT_DECIMALS, key="doe_dec")
                 if data_input:
                     try:
