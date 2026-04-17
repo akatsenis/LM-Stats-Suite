@@ -656,6 +656,31 @@ def render():
                         f"with R² = {model['r2']:.{decimals}f} and residual SD = {model['s']:.{decimals}f}. "
                         f"The analysis displayed {('confidence intervals' if interval_mode == 'ci' else 'prediction intervals' if interval_mode == 'pi' else 'both confidence and prediction intervals')} using a {side_mode} setting at {confidence:.0%} confidence." + crossing_text
                     )
+                    reg_stats = common.regression_anova_and_coefficients(
+                       data_df["x"].to_numpy(),
+                        data_df["y"].to_numpy(),
+                        alpha=reg_alpha,
+                    st.markdown("### Regression Significance")
+
+                    if reg_stats["slope_p_value"] < reg_alpha:
+                        st.success(reg_stats["trend_text"])
+                    else:
+                        st.warning(reg_stats["trend_text"])
+
+                    st.markdown("#### Coefficients")
+                    common.show_formatted_table(
+                        reg_stats["coefficients"],
+                        caption="Regression Coefficients",
+                        decimals=decimals,
+                    )
+
+st.markdown("#### ANOVA")
+common.show_formatted_table(
+    reg_stats["anova"],
+    caption="Analysis of Variance",
+    decimals=decimals,
+)
+                    )   
                     export_results(
                         prefix="regression_intervals_refined",
                         report_title="Statistical Analysis Report",
