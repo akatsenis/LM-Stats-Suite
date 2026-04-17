@@ -64,7 +64,9 @@ def inject_css():
     st.markdown(
         """
         <style>
-        .block-container {padding-top: 0.9rem; padding-bottom: 2rem;}
+        .block-container {padding-top: 3.2rem; padding-bottom: 2rem;}
+        [data-testid="stAppViewContainer"] {scroll-padding-top: 5rem;}
+        [data-testid="stHeader"] {background: rgba(255,255,255,0.92); backdrop-filter: blur(2px);}
         .app-header {
             border:1px solid #e2e8f0; border-radius:14px; padding:16px 20px;
             background: linear-gradient(90deg, #f8fafc 0%, #ffffff 100%);
@@ -202,31 +204,6 @@ def render_display_settings():
     ARROW_SIZE = _all_cfg["arrow_size"]
     st.sidebar.divider()
     st.sidebar.info("Paste data from Excel. Tables, charts, Excel exports, and PDF-style reports are built into the app. Exported figures keep the current display settings.")
-
-def _parse_style_float(val):
-    if val is None:
-        return None
-    if isinstance(val, (int, float, np.number)):
-        return float(val)
-    s = str(val).strip()
-    if s == "":
-        return None
-    try:
-        return float(s)
-    except Exception:
-        return None
-
-def get_plot_cfg(plot_key="All graphs"):
-    cfg = DEFAULT_STYLE_CFG.copy()
-    cfg.update(st.session_state.get("plot_style_cfg", {}).get("All graphs", {}))
-    if plot_key and plot_key != "All graphs":
-        specific = st.session_state.get("plot_style_cfg", {}).get(plot_key, {})
-        cfg.update({k: v for k, v in specific.items() if v not in [None, ""]})
-    cfg["x_min"] = _parse_style_float(cfg.get("x_min"))
-    cfg["x_max"] = _parse_style_float(cfg.get("x_max"))
-    cfg["y_min"] = _parse_style_float(cfg.get("y_min"))
-    cfg["y_max"] = _parse_style_float(cfg.get("y_max"))
-    return cfg
 
 # -------------------------------------------------
 # UI helpers
