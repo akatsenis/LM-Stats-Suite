@@ -133,6 +133,36 @@ DEFAULT_STYLE_CFG = {
 }
 
 
+
+def _parse_style_float(val):
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    sval = str(val).strip()
+    if sval == "":
+        return None
+    try:
+        return float(sval)
+    except Exception:
+        return None
+
+
+def get_plot_cfg(plot_key="All graphs"):
+    cfg_map = st.session_state.get("plot_style_cfg", {})
+    base = DEFAULT_STYLE_CFG.copy()
+    all_cfg = cfg_map.get("All graphs", {})
+    if isinstance(all_cfg, dict):
+        base.update({k: v for k, v in all_cfg.items() if v is not None})
+    if plot_key != "All graphs":
+        local_cfg = cfg_map.get(plot_key, {})
+        if isinstance(local_cfg, dict):
+            base.update({k: v for k, v in local_cfg.items() if v is not None})
+    for key in ["x_min", "x_max", "y_min", "y_max"]:
+        base[key] = _parse_style_float(base.get(key))
+    return base
+
+
 def render_display_settings():
     global DEFAULT_DECIMALS, FIG_W, FIG_H, SHOW_LEGEND, LEGEND_LOC, PRIMARY_COLOR, SECONDARY_COLOR, TERTIARY_COLOR, BAND_COLOR, GRID_ALPHA, MARKER_SIZE, FIT_LINE_COLOR, FIT_LINE_STYLE, LINE_WIDTH, AREA_ALPHA, CI_LINE_STYLE, PI_LINE_STYLE, SPEC_LINE_STYLE, ARROW_SIZE
     if "plot_style_cfg" not in st.session_state:
@@ -193,7 +223,7 @@ def render_display_settings():
         if st.button("Reset selected graph style", key=f"reset_style_{target_graph}"):
             st.session_state["plot_style_cfg"][target_graph] = {} if target_graph != "All graphs" else DEFAULT_STYLE_CFG.copy()
             st.rerun()
-    _all_cfg = get_plot_cfg("All graphs")
+    _all_cfg = safe_get_plot_cfg("All graphs")
     FIG_W = _all_cfg["fig_w"]; FIG_H = _all_cfg["fig_h"]; SHOW_LEGEND = _all_cfg["show_legend"]; LEGEND_LOC = _all_cfg["legend_loc"]
     PRIMARY_COLOR = _all_cfg["primary_color"]; SECONDARY_COLOR = _all_cfg["secondary_color"]; TERTIARY_COLOR = _all_cfg["tertiary_color"]
     BAND_COLOR = _all_cfg["band_color"]; GRID_ALPHA = _all_cfg["grid_alpha"]; MARKER_SIZE = _all_cfg["marker_size"]
