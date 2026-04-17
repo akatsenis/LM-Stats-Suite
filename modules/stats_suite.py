@@ -16,6 +16,77 @@ info_box = common.info_box
 DEFAULT_DECIMALS = common.DEFAULT_DECIMALS
 
 
+def regression_anova_and_coefficients_local(x, y, alpha=0.05):
+    x = np.asarray(x, dtype=float).ravel()
+    y = np.asarray(y, dtype=float).ravel()
+
+    n = len(x)
+    if n < 3:
+        raise ValueError("At least 3 points are required.")
+
+    X = np.column_stack([np.ones(n), x])
+    XtX_inv = np.linalg.inv(X.T @ X)
+    beta = XtX_inv @ (X.T @ y)
+
+    intercept, slope = beta
+    fitted = X @ beta
+    resid = y - fitted
+
+    df_reg = 1
+    df_err = n - 2
+    df_tot = n - 1
+
+    ss_reg = float(np.sum((fitted - np.mean(y)) ** 2))
+    ss_err = float(np.sum(resid ** 2))
+    ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+
+    ms_reg = ss_reg / df_reg
+    ms_err = ss_err / df_err if df_err > 0 else np.nan
+
+    f_stat = ms_reg / ms_err if ms_err > 0 else np.nan
+    p_reg = 1 - stats.f.cdf(f_stat, df_reg, df_err) if np.isfinite(f_stat) else np.nan
+
+    se_beta = np.sqrt(np.diag(XtX_inv) * ms_err)
+    t_vals = beta / se_beta
+    p_vals = 2 * (1 - stats.t.cdf(np.abs(t_vals), df_err))
+
+    tcrit = stats.t.ppf(1 - alpha / 2, df_err)
+
+    coef_df = pd.DataFrame({
+        "Term": ["Intercept", "Slope"],
+        "Coefficient": [intercept, slope],
+        "SE Coefficient": se_beta,
+        "t Value": t_vals,
+        "p Value": p_vals,
+        "Lower CI": beta - tcrit * se_beta,
+        "Upper CI": beta + tcrit * se_beta,
+    })
+
+    anova_df = pd.DataFrame({
+        "Source": ["Regression", "Error", "Total"],
+        "DF": [df_reg, df_err, df_tot],
+        "SS": [ss_reg, ss_err, ss_tot],
+        "MS": [ms_reg, ms_err, np.nan],
+        "F": [f_stat, np.nan, np.nan],
+        "p Value": [p_reg, np.nan, np.nan],
+    })
+
+    trend_text = (
+        f"Significant linear trend detected (slope p = {p_vals[1]:.4g} < {alpha:.4g})."
+        if p_vals[1] < alpha
+        else f"No significant linear trend detected (slope p = {p_vals[1]:.4g} ≥ {alpha:.4g})."
+    )
+
+    return {
+        "anova": anova_df,
+        "coefficients": coef_df,
+        "slope_p_value": float(p_vals[1]),
+        "regression_p_value": float(p_reg),
+        "f_stat": float(f_stat),
+        "trend_text": trend_text,
+    }
+
+
 TOOLS = ['01 - Descriptive Statistics', '02 - Regression Intervals', '03 - Shelf Life Estimator', '04 - Dissolution Comparison (f2)', '05 - Two-Sample Tests', '06 - Two-Way ANOVA', '07 - Tolerance & Confidence Intervals', '08 - PCA Analysis']
 
 
@@ -501,10 +572,10 @@ def render():
     
     # -------------------------------------------------
 
-    # App 02 Regression Analysis
+    # App 02 Regression Intervals
     # -------------------------------------------------
     if tool == "02 - Regression Intervals":
-        app_header("📈 App 02 - Regression Analysis", "Linear regression with CI / PI / both, one-sided or two-sided bands, prediction points, and spec-limit crossing.")
+        app_header("📈 App 02 - Regression Intervals", "Linear regression with CI / PI / both, one-sided or two-sided bands, prediction points, and spec-limit crossing.")
     
         left, right = st.columns([1.45, 1])
         with left:
@@ -535,7 +606,7 @@ def render():
                 with c7:
                     point_label = st.text_input("Point label", value="Data")
     
-                c8, c9, c10, c11 = st.columns([0.9, 0.9, 0.9, 0.9])
+                c8, c9, c10, c11, c12 = st.columns([0.8, 0.9, 0.9, 0.9, 1.1])
                 with c8:
                     y_suffix = st.text_input("Y suffix", value="%")
                 with c9:
@@ -545,6 +616,8 @@ def render():
                     x_max_txt = st.text_input("X max", value=default_xmax)
                 with c11:
                     decimals = st.slider("Decimals", 1, 8, DEFAULT_DECIMALS, key="reg_dec_refined")
+                with c12:
+                    reg_alpha = st.number_input("Trend test α", min_value=0.0001, max_value=0.2000, value=0.0500, step=0.0050, format="%.4f", key="reg_alpha_trend")
     
                 st.markdown("### Specification / crossing")
                 s1, s2, s3, s4 = st.columns([0.9, 1, 1, 1.2])
@@ -586,6 +659,7 @@ def render():
     
                     grid_x = np.linspace(x_min, x_max, 500)
                     model = reg_fit_linear_model(data_df["x"], data_df["y"])
+                    reg_stats = regression_anova_and_coefficients_local(data_df["x"], data_df["y"], alpha=reg_alpha)
                     grid_df = reg_predict_with_intervals(model, grid_x, confidence=confidence, side=side_mode)
     
                     fig_main, crossing_x = plot_regression_advanced(
@@ -606,17 +680,7 @@ def render():
                         crossing_on=crossing_on,
                     )
                     st.pyplot(fig_main)
-
-                    reg_alpha = st.number_input(
-                       "Trend test α",
-                        min_value=0.0001,
-                        max_value=0.2000,
-                        value=0.0500,
-                        step=0.0050,
-                        format="%.4f",
-                        key="reg_alpha_trend",
-                    )
-
+    
                     summary_tbl = pd.DataFrame({
                         "Intercept": [model["intercept"]],
                         "Slope": [model["slope"]],
@@ -644,9 +708,9 @@ def render():
                     final_table_df.columns = ["X Value", "Actual Y", "Fitted Y", "Lower CI", "Upper CI", "Lower PI", "Upper PI"]
                     report_table(final_table_df, "Table 2: Fitted values and intervals", decimals)
     
-                    fig_res = common.residual_plot_for("Residual plot", model["fitted"], model["resid"], xlabel="Fitted values", ylabel="Residuals", title="Residuals vs fitted")
+                    fig_res = residual_plot(model["fitted"], model["resid"], xlabel="Fitted values", ylabel="Residuals", title="Residuals vs fitted")
                     st.pyplot(fig_res)
-                    fig_qq = common.qq_plot_for("Q-Q plot", model["resid"], title="Normal probability plot of regression residuals")
+                    fig_qq = qq_plot(model["resid"], title="Normal probability plot of regression residuals")
                     st.pyplot(fig_qq)
     
                     crossing_text = f" A crossing with the selected specification limit was identified at x = {crossing_x:.{decimals}f}." if crossing_x is not None else " No crossing with the selected specification limit was identified in the displayed X range."
@@ -654,33 +718,8 @@ def render():
                         f"A simple linear regression was fitted to {len(data_df)} observations. "
                         f"The fitted equation was y = {model['intercept']:.{decimals}f} + {model['slope']:.{decimals}f} × x, "
                         f"with R² = {model['r2']:.{decimals}f} and residual SD = {model['s']:.{decimals}f}. "
-                        f"The analysis displayed {('confidence intervals' if interval_mode == 'ci' else 'prediction intervals' if interval_mode == 'pi' else 'both confidence and prediction intervals')} using a {side_mode} setting at {confidence:.0%} confidence." + crossing_text
+                        f"The analysis displayed {('confidence intervals' if interval_mode == 'ci' else 'prediction intervals' if interval_mode == 'pi' else 'both confidence and prediction intervals')} using a {side_mode} setting at {confidence:.0%} confidence. A slope significance test gave p = {reg_stats["slope_p_value"]:.{min(4, DEFAULT_DECIMALS)}g}. " + crossing_text
                     )
-                    reg_stats = common.regression_anova_and_coefficients(
-                       data_df["x"].to_numpy(),
-                        data_df["y"].to_numpy(),
-                        alpha=reg_alpha,
-                    st.markdown("### Regression Significance")
-
-                    if reg_stats["slope_p_value"] < reg_alpha:
-                        st.success(reg_stats["trend_text"])
-                    else:
-                        st.warning(reg_stats["trend_text"])
-
-                    st.markdown("#### Coefficients")
-                    common.show_formatted_table(
-                        reg_stats["coefficients"],
-                        caption="Regression Coefficients",
-                        decimals=decimals,
-                    )
-
-st.markdown("#### ANOVA")
-common.show_formatted_table(
-    reg_stats["anova"],
-    caption="Analysis of Variance",
-    decimals=decimals,
-)
-                    )   
                     export_results(
                         prefix="regression_intervals_refined",
                         report_title="Statistical Analysis Report",
@@ -689,11 +728,11 @@ common.show_formatted_table(
                             "A simple linear regression model was fitted to the pasted X and Y data using ordinary least squares. "
                             "The analysis estimates the intercept and slope of the linear relationship, summarizes goodness of fit using R² and residual standard deviation, "
                             "and then calculates confidence intervals for the fitted mean response and prediction intervals for future observations. "
-                            "The module also allows one-sided or two-sided interval construction and can estimate a crossing point against a user-defined specification limit."
+                            "The module also allows one-sided or two-sided interval construction, tests whether the slope differs significantly from zero using both coefficient and ANOVA outputs, and can estimate a crossing point against a user-defined specification limit."
                         ),
                         offer_text=(
                             "This analysis offers a practical way to evaluate linear trends over X, quantify the expected response at user-selected X values, "
-                            "compare observed responses with fitted values, and distinguish between uncertainty in the average response and variability expected for individual future measurements. "
+                            "compare observed responses with fitted values, assess whether a statistically significant linear trend is present, and distinguish between uncertainty in the average response and variability expected for individual future measurements. "
                             "When a specification limit is supplied, it can also estimate where the fitted curve or selected interval band crosses that limit."
                         ),
                         python_tools=(
@@ -703,6 +742,8 @@ common.show_formatted_table(
                         ),
                         table_map={
                             "Regression Model Summary": summary_tbl,
+                            "Regression Coefficients": reg_stats["coefficients"],
+                            "Regression ANOVA": reg_stats["anova"],
                             "Parsed Input Data": data_df.rename(columns={"x": "X Value", "y": "Actual Y"}),
                             "Fitted Values and Intervals": final_table_df,
                         },
@@ -773,50 +814,49 @@ common.show_formatted_table(
     
         def sl_plot_local(data_df, grid_df, spec_side, spec_limit, shelf_basis, show_ci_band, show_pi_band,
                           title, xlabel, ylabel, point_label, y_suffix, spec_label):
-            cfg = common.safe_get_plot_cfg("Shelf life")
             x = data_df["x"].to_numpy()
             y = data_df["y"].to_numpy()
-            fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
-
+            fig, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+    
             if show_pi_band:
-                ax.fill_between(grid_df["x"], grid_df["pi_lower"], grid_df["pi_upper"], color=cfg["secondary_color"], alpha=0.10, label="PI band")
-                ax.plot(grid_df["x"], grid_df["pi_lower"], color=cfg["secondary_color"], lw=cfg["aux_line_width"], ls=(0, (4, 4)))
-                ax.plot(grid_df["x"], grid_df["pi_upper"], color=cfg["secondary_color"], lw=cfg["aux_line_width"], ls=(0, (4, 4)))
-
+                ax.fill_between(grid_df["x"], grid_df["pi_lower"], grid_df["pi_upper"], color=SECONDARY_COLOR, alpha=0.10, label="PI band")
+                ax.plot(grid_df["x"], grid_df["pi_lower"], color=SECONDARY_COLOR, lw=1.0, ls=(0, (4, 4)))
+                ax.plot(grid_df["x"], grid_df["pi_upper"], color=SECONDARY_COLOR, lw=1.0, ls=(0, (4, 4)))
+    
             if show_ci_band:
-                ax.fill_between(grid_df["x"], grid_df["ci_lower"], grid_df["ci_upper"], color=cfg["band_color"], alpha=0.15, label="CI band")
-                ax.plot(grid_df["x"], grid_df["ci_lower"], color=cfg["band_color"], lw=cfg["aux_line_width"], ls="--")
-                ax.plot(grid_df["x"], grid_df["ci_upper"], color=cfg["band_color"], lw=cfg["aux_line_width"], ls="--")
-
-            ax.scatter(x, y, color=cfg.get("marker_color", cfg["primary_color"]), s=cfg["marker_size"], alpha=0.85, label=point_label, zorder=3, marker=cfg.get("marker_style", "o"))
-            ax.plot(grid_df["x"], grid_df["fit"], color=cfg.get("line_color", cfg["primary_color"]), lw=cfg["line_width"], ls=cfg["line_style"], label="Fitted line")
-
+                ax.fill_between(grid_df["x"], grid_df["ci_lower"], grid_df["ci_upper"], color=BAND_COLOR, alpha=0.15, label="CI band")
+                ax.plot(grid_df["x"], grid_df["ci_lower"], color=BAND_COLOR, lw=1.0, ls="--")
+                ax.plot(grid_df["x"], grid_df["ci_upper"], color=BAND_COLOR, lw=1.0, ls="--")
+    
+            ax.scatter(x, y, color=PRIMARY_COLOR, s=50, alpha=0.85, label=point_label, zorder=3)
+            ax.plot(grid_df["x"], grid_df["fit"], color="#2c3e50", lw=2, label="Fitted line")
+    
             bound_col = sl_get_bound_column_local(spec_side, shelf_basis)
-            bound_color = {"fit": cfg.get("line_color", cfg["primary_color"]), "ci": cfg["band_color"], "pi": cfg["secondary_color"]}[shelf_basis]
+            bound_color = {"fit": "#2c3e50", "ci": BAND_COLOR, "pi": SECONDARY_COLOR}[shelf_basis]
             bound_label = {
                 "fit": "Shelf-life line (fit)",
                 "ci": f"Shelf-life bound ({'lower' if spec_side == 'lower' else 'upper'} CI)",
                 "pi": f"Shelf-life bound ({'lower' if spec_side == 'lower' else 'upper'} PI)",
             }[shelf_basis]
             if shelf_basis != "fit":
-                ax.plot(grid_df["x"], grid_df[bound_col], color=bound_color, lw=max(cfg["line_width"], 2.0), label=bound_label)
-
+                ax.plot(grid_df["x"], grid_df[bound_col], color=bound_color, lw=2.5, label=bound_label)
+    
             ax.axhline(spec_limit, color="#27ae60", ls="--", lw=1.5, label=f"Limit ({spec_label})")
             shelf_life = sl_find_crossing_local(grid_df["x"].to_numpy(), grid_df[bound_col].to_numpy(), spec_limit)
             if shelf_life is not None:
                 ax.axvline(shelf_life, color="#27ae60", ls=":", lw=1.5)
-
+    
             xmin = float(grid_df["x"].min())
             xmax = float(grid_df["x"].max())
             ymax_data = max(np.max(y), np.max(grid_df["fit"]), np.max(grid_df["ci_upper"]), np.max(grid_df["pi_upper"]))
             ymin_data = min(np.min(y), np.min(grid_df["fit"]), np.min(grid_df["ci_lower"]), np.min(grid_df["pi_lower"]))
             pad = 0.03 * ((ymax_data - ymin_data) if ymax_data > ymin_data else 1)
-
+    
             ax.text(
                 xmin + (xmax - xmin) * 0.02,
                 spec_limit + pad,
                 f"{spec_label} = {spec_limit:.2f}{y_suffix}",
-                ha="left", va="bottom", fontsize=max(10, cfg["font_size"]), color="#27ae60", weight="bold",
+                ha="left", va="bottom", fontsize=11, color="#27ae60", weight="bold",
                 bbox=dict(facecolor="white", alpha=0.82, edgecolor="none", pad=3),
             )
             if shelf_life is not None:
@@ -824,19 +864,19 @@ common.show_formatted_table(
                     shelf_life,
                     ymin_data + pad,
                     f" {shelf_life:.2f} ",
-                    ha="right", va="bottom", fontsize=max(10, cfg["font_size"]), color="#27ae60", weight="bold",
+                    ha="right", va="bottom", fontsize=11, color="#27ae60", weight="bold",
                     bbox=dict(facecolor="white", alpha=0.82, edgecolor="none", pad=2),
                 )
-
+    
             if y_suffix:
                 ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, pos: f"{v:.1f}{y_suffix}"))
-
+    
             if not str(title).strip():
                 side_txt = "Lower Spec" if spec_side == "lower" else "Upper Spec"
                 basis_txt = {"fit": "Fit", "ci": "Confidence Bound", "pi": "Prediction Bound"}[shelf_basis]
                 title = f"Shelf Life Estimator ({side_txt}, {basis_txt})"
-
-            apply_ax_style(ax, title, xlabel, ylabel, legend=True, plot_key="Shelf life")
+    
+            apply_ax_style(ax, title, xlabel, ylabel, legend=True)
             return fig, shelf_life, bound_col
     
         c1, c2 = st.columns([1.35, 1])
@@ -951,9 +991,9 @@ common.show_formatted_table(
                 final_table_df.columns = [xlabel, f"Actual {ylabel}", f"Fitted {ylabel}", "Lower CI", "Upper CI", "Lower PI", "Upper PI"]
                 report_table(final_table_df, "Table 2: Fitted values and one-sided bounds", decimals)
     
-                fig_res = common.residual_plot_for("Residual plot", model["fitted"], model["resid"], xlabel="Fitted values", ylabel="Residuals", title="Residuals vs fitted")
+                fig_res = residual_plot(model["fitted"], model["resid"], xlabel="Fitted values", ylabel="Residuals", title="Residuals vs fitted")
                 st.pyplot(fig_res)
-                fig_qq = common.qq_plot_for("Shelf life Q-Q plot", model["resid"], title="Normal probability plot of stability residuals")
+                fig_qq = qq_plot(model["resid"], title="Normal probability plot of stability residuals")
                 st.pyplot(fig_qq)
     
                 conclusion = (
@@ -1270,21 +1310,19 @@ common.show_formatted_table(
     
                     report_table(tests, f"Two-sample test results (α = {alpha})", decimals)
     
-                    box_cfg = common.safe_get_plot_cfg("Two-sample box plot")
-                    fig_box, ax = plt.subplots(figsize=(box_cfg["fig_w"], box_cfg["fig_h"]))
+                    fig_box, ax = plt.subplots(figsize=(FIG_W, FIG_H))
                     ax.boxplot([x, y], labels=[sample_a, sample_b], patch_artist=True)
-                    apply_ax_style(ax, "Two-sample comparison", "Sample", "Value", plot_key="Two-sample box plot")
+                    apply_ax_style(ax, "Two-sample comparison", "Sample", "Value")
                     st.pyplot(fig_box)
     
-                    dens_cfg = common.safe_get_plot_cfg("Two-sample density plot")
-                    fig_dens, ax2 = plt.subplots(figsize=(dens_cfg["fig_w"], dens_cfg["fig_h"]))
+                    fig_dens, ax2 = plt.subplots(figsize=(FIG_W, FIG_H))
                     if len(np.unique(x)) > 1:
                         xs = np.linspace(np.min(x), np.max(x), 200)
-                        ax2.plot(xs, gaussian_kde(x)(xs), color=dens_cfg["primary_color"], lw=dens_cfg["line_width"], ls=dens_cfg["line_style"], label=sample_a)
+                        ax2.plot(xs, gaussian_kde(x)(xs), color=PRIMARY_COLOR, lw=2, label=sample_a)
                     if len(np.unique(y)) > 1:
                         ys = np.linspace(np.min(y), np.max(y), 200)
-                        ax2.plot(ys, gaussian_kde(y)(ys), color=dens_cfg["secondary_color"], lw=dens_cfg["line_width"], ls=dens_cfg["line_style"], label=sample_b)
-                    apply_ax_style(ax2, "Density comparison", "Value", "Density", legend=True, plot_key="Two-sample density plot")
+                        ax2.plot(ys, gaussian_kde(y)(ys), color=SECONDARY_COLOR, lw=2, label=sample_b)
+                    apply_ax_style(ax2, "Density comparison", "Value", "Density", legend=True)
                     st.pyplot(fig_dens)
     
                     export_results(
@@ -1376,18 +1414,17 @@ common.show_formatted_table(
                 summary.columns = [factor_a, factor_b, "N", "Mean", "Std. Deviation", "Minimum", "Maximum"]
                 report_table(summary, "Cell summary statistics", decimals)
     
-                inter_cfg = common.safe_get_plot_cfg("Two-way ANOVA interaction")
-                fig_inter, ax = plt.subplots(figsize=(inter_cfg["fig_w"], inter_cfg["fig_h"]))
+                fig_inter, ax = plt.subplots(figsize=(FIG_W, FIG_H))
                 for lvl in d["FactorB"].astype(str).unique():
                     sub = d[d["FactorB"].astype(str) == lvl]
                     means = sub.groupby("FactorA")["Response"].mean().reset_index()
-                    ax.plot(means["FactorA"].astype(str), means["Response"], marker=inter_cfg.get("marker_style", 'o'), lw=inter_cfg["line_width"], ls=inter_cfg["line_style"], label=f"{factor_b} = {lvl}")
-                apply_ax_style(ax, "Interaction plot", factor_a, response, legend=True, plot_key="Two-way ANOVA interaction")
+                    ax.plot(means["FactorA"].astype(str), means["Response"], marker='o', lw=2, label=f"{factor_b} = {lvl}")
+                apply_ax_style(ax, "Interaction plot", factor_a, response, legend=True)
                 st.pyplot(fig_inter)
     
-                fig_res = common.residual_plot_for("Two-way ANOVA residual plot", model.fittedvalues, model.resid, xlabel="Fitted values", ylabel="Residuals", title="Residuals vs fitted")
+                fig_res = residual_plot(model.fittedvalues, model.resid, xlabel="Fitted values", ylabel="Residuals", title="Residuals vs fitted")
                 st.pyplot(fig_res)
-                fig_qq = common.qq_plot_for("Two-way ANOVA Q-Q plot", model.resid, title="Normal probability plot of ANOVA residuals")
+                fig_qq = qq_plot(model.resid, title="Normal probability plot of ANOVA residuals")
                 st.pyplot(fig_qq)
     
                 export_results(
@@ -1485,10 +1522,9 @@ common.show_formatted_table(
     
                     data_list = [to_numeric(df[sample_a]).dropna().to_numpy()] if sample_b == "(None)" else ([x, y] if paired else [to_numeric(df[sample_a]).dropna().to_numpy(), to_numeric(df[sample_b]).dropna().to_numpy()])
                     labels = [sample_a] if sample_b == "(None)" else [sample_a, sample_b]
-                    ti_cfg = common.safe_get_plot_cfg("Tolerance/CI box plot")
-                    fig_box, ax = plt.subplots(figsize=(ti_cfg["fig_w"], ti_cfg["fig_h"]))
+                    fig_box, ax = plt.subplots(figsize=(FIG_W, FIG_H))
                     ax.boxplot(data_list, labels=labels, patch_artist=True)
-                    apply_ax_style(ax, "Sample distributions", "Sample", "Value", plot_key="Tolerance/CI box plot")
+                    apply_ax_style(ax, "Sample distributions", "Sample", "Value")
                     st.pyplot(fig_box)
     
                     export_results(
