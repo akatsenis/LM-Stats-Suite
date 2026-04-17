@@ -15,6 +15,17 @@ info_box = common.info_box
 
 DEFAULT_DECIMALS = common.DEFAULT_DECIMALS
 
+TOOLS = [
+    "01 - Descriptive Statistics",
+    "02 - Regression Intervals",
+    "03 - Shelf Life Estimator",
+    "04 - Dissolution Comparison (f2)",
+    "05 - Two-Sample Tests",
+    "06 - Two-Way ANOVA",
+    "07 - Tolerance & Confidence Intervals",
+    "08 - PCA Analysis",
+]
+
 
 def regression_anova_and_coefficients_local(x, y, alpha=0.05):
     x = np.asarray(x, dtype=float).ravel()
@@ -87,27 +98,26 @@ def regression_anova_and_coefficients_local(x, y, alpha=0.05):
     }
 
 
-TOOLS = ['01 - Descriptive Statistics', '02 - Regression Intervals', '03 - Shelf Life Estimator', '04 - Dissolution Comparison (f2)', '05 - Two-Sample Tests', '06 - Two-Way ANOVA', '07 - Tolerance & Confidence Intervals', '08 - PCA Analysis']
-
-
 def render():
     render_display_settings()
     st.sidebar.title("🔬 lm Stats")
     st.sidebar.markdown("Stats Suite")
     tool = st.sidebar.radio("Stats tool", TOOLS, key="stats_tool")
     st.sidebar.caption("Use the pages menu to switch to DoE Studio.")
-    # App 01 Descriptive Statistics
-    # -------------------------------------------------
+
     if tool == "01 - Descriptive Statistics":
-        app_header("📊 App 01 - Descriptive Statistics", "Paste one or more numeric columns with headers. For one column, get a graphical summary. For multiple columns, choose a reference and a test column to compare.")
-    
+        app_header(
+            "📊 App 01 - Descriptive Statistics",
+            "Paste one or more numeric columns with headers. For one column, get a graphical summary. For multiple columns, choose a reference and a test column to compare.",
+        )
+
         data_input = st.text_area("Data (paste with headers)", height=220)
         decimals = st.slider("Decimals", 1, 8, DEFAULT_DECIMALS, key="desc_dec")
         alpha = st.slider("Significance level α", 0.001, 0.100, 0.050, 0.001, key="desc_alpha")
         mean_ci_conf = st.slider("Mean CI confidence (%)", 80, 99, 95, 1, key="desc_mean_ci")
         tol_cov = st.slider("Tolerance interval coverage (%)", 80, 99, 99, 1, key="desc_tol_cov")
         tol_conf = st.slider("Tolerance interval confidence (%)", 80, 99, 95, 1, key="desc_tol_conf")
-    
+
         def _one_sample_summary(arr, label, ci_conf=0.95, tol_p=0.99, tol_confidence=0.95):
             arr = np.asarray(arr, dtype=float)
             n = len(arr)
@@ -152,7 +162,7 @@ def render():
                 "shapiro_stat": sh_stat,
                 "shapiro_p": sh_p,
             }
-    
+
         def _f_test_equal_var(a, b):
             a = np.asarray(a, dtype=float)
             b = np.asarray(b, dtype=float)
@@ -168,7 +178,7 @@ def render():
                 dfn, dfd = len(b) - 1, len(a) - 1
             p = 2 * min(stats.f.cdf(fstat, dfn, dfd), 1 - stats.f.cdf(fstat, dfn, dfd))
             return fstat, min(p, 1.0)
-    
+
         def _anova_two_groups(a, b):
             a = np.asarray(a, dtype=float)
             b = np.asarray(b, dtype=float)
@@ -194,7 +204,7 @@ def render():
                 "F": [f_stat, np.nan, np.nan],
                 "P-Value": [p, np.nan, np.nan],
             }), ms_within, ss_between, ss_total
-    
+
         def _acceptance_band(ref, test, alpha_level=0.05):
             ref = np.asarray(ref, dtype=float)
             test = np.asarray(test, dtype=float)
@@ -206,191 +216,39 @@ def render():
             se_diff = np.sqrt((1 / n1 + 1 / n2) * sp2)
             tcrit = t.ppf(1 - alpha_level / 2, n1 + n2 - 2)
             return m1 - tcrit * se_diff, m1 + tcrit * se_diff
-    
-        
+
         def _graphical_summary_figure(stats_list, title, shaded_range=None, shaded_label=None):
             cfg = common.safe_get_plot_cfg("Descriptive summary")
-            if len(stats_list) > 1:
-                colors = [cfg["primary_color"], cfg["secondary_color"], cfg["tertiary_color"]]
-            else:
-                colors = [cfg["primary_color"]]
+            fig, ax = plt.subplots(figsize=(cfg["fig_w"] * 1.7, cfg["fig_h"] * 1.45))
+
+            colors = [cfg["primary_color"], cfg["secondary_color"], cfg["tertiary_color"]]
             labels = [s["label"] for s in stats_list]
-    
-            mins, maxs = [], []
-            for s in stats_list:
-                for key in ["min", "whisker_lower", "q1", "mean", "tol_lower", "ci_lower"]:
-                    if pd.notna(s.get(key, np.nan)):
-                        mins.append(s[key])
-                for key in ["max", "whisker_upper", "q3", "mean", "tol_upper", "ci_upper"]:
-                    if pd.notna(s.get(key, np.nan)):
-                        maxs.append(s[key])
-    
-            sr = None
+            ypos = np.arange(len(stats_list), 0, -1)
+
             if shaded_range is not None:
-                try:
-                    sr = np.asarray(shaded_range, dtype=float).ravel()
-                    if sr.size == 2 and np.all(np.isfinite(sr)):
-                        mins.append(float(np.min(sr)))
-                        maxs.append(float(np.max(sr)))
-                    else:
-                        sr = None
-                except Exception:
-                    sr = None
-    
-            x_min = min(mins) if mins else 0.0
-            x_max = max(maxs) if maxs else 1.0
-            pad = 0.08 * (x_max - x_min if x_max > x_min else 1)
-            x_lo, x_hi = x_min - pad, x_max + pad
-    
-            fig, (ax, axr) = plt.subplots(
-                1, 2,
-                figsize=(max(cfg["fig_w"] * 1.95, 13), max(cfg["fig_h"] * 1.55, 7.2)),
-                gridspec_kw={"width_ratios": [1.6, 1]}
-            )
-    
-            density_y0 = 6.35
-            row_centers = [5.25, 4.35, 3.45, 2.55, 1.65, 0.75]
-            row_names = [
-                "Whisker Min/Max",
-                "Min/Max",
-                "Mean ± 3SD",
-                "IQR (Q1, Q3)",
-                f"{tol_cov}%/{tol_conf}% Tol. Interval",
-                f"{mean_ci_conf}% CI for Mean",
-            ]
-    
-            if sr is not None:
-                ax.axvspan(sr[0], sr[1], color=cfg["band_color"], alpha=0.18)
-                ax.axvline(sr[0], color=cfg["secondary_color"], ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
-                ax.axvline(sr[1], color=cfg["secondary_color"], ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
-                if shaded_label:
-                    ax.text(
-                        float(np.mean(sr)),
-                        6.55,
-                        shaded_label,
-                        color=cfg["secondary_color"],
-                        ha="center",
-                        va="bottom",
-                        fontsize=9,
-                        bbox=dict(facecolor="white", alpha=0.85, edgecolor="none", pad=2),
-                    )
-    
-            xgrid = np.linspace(x_lo, x_hi, 600)
+                sr = np.asarray(shaded_range, dtype=float).ravel()
+                if sr.size == 2 and np.all(np.isfinite(sr)):
+                    ax.axvspan(sr[0], sr[1], color=cfg["band_color"], alpha=0.18)
+                    if shaded_label:
+                        ax.text(np.mean(sr), len(stats_list) + 0.55, shaded_label, ha="center", va="bottom", fontsize=9)
+
             for i, s in enumerate(stats_list):
-                arr = s["raw"]
-                col = colors[i]
-                if len(np.unique(arr)) > 1 and len(arr) >= 3:
-                    try:
-                        dens = gaussian_kde(arr)(xgrid)
-                        dens = dens / dens.max() * 0.85
-                    except Exception:
-                        dens = np.zeros_like(xgrid)
-                else:
-                    dens = np.zeros_like(xgrid)
-                ax.plot(xgrid, density_y0 + dens, color=col, lw=cfg["line_width"], ls=cfg["line_style"])
-                ax.hlines(density_y0, x_lo, x_hi, color="#111827", lw=0.8)
-    
-            offsets = [0.10, -0.10] if len(stats_list) > 1 else [0.0]
-            for ridx, yc in enumerate(row_centers):
-                ax.hlines(yc - 0.37, x_lo, x_hi, color="#d1d5db", lw=0.8)
-                for i, s in enumerate(stats_list):
-                    yy = yc + offsets[i]
-                    col = colors[i]
-                    ms = max(4, cfg["marker_size"] / 12)
-                    if ridx == 0:
-                        ax.hlines(yy, s["whisker_lower"], s["whisker_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
-                        ax.plot(s["median"], yy, 'o', color=col, ms=ms)
-                    elif ridx == 1:
-                        ax.hlines(yy, s["min"], s["max"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
-                        ax.plot(s["median"], yy, 'o', color=col, ms=ms)
-                    elif ridx == 2:
-                        lo = s["mean"] - 3 * s["sd"] if pd.notna(s["sd"]) else np.nan
-                        hi = s["mean"] + 3 * s["sd"] if pd.notna(s["sd"]) else np.nan
-                        if pd.notna(lo) and pd.notna(hi):
-                            ax.hlines(yy, lo, hi, color=col, lw=cfg["line_width"], ls=cfg["line_style"])
-                        ax.plot(s["mean"], yy, 'o', color=col, ms=max(4.5, cfg["marker_size"] / 10))
-                    elif ridx == 3:
-                        ax.hlines(yy, s["q1"], s["q3"], color=col, lw=cfg["line_width"] + 0.2, ls=cfg["line_style"])
-                        ax.plot(s["median"], yy, 'o', color=col, ms=ms)
-                    elif ridx == 4:
-                        ax.hlines(yy, s["tol_lower"], s["tol_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
-                        ax.plot(s["mean"], yy, 'o', color=col, ms=max(4.5, cfg["marker_size"] / 10))
-                    elif ridx == 5:
-                        ax.hlines(yy, s["ci_lower"], s["ci_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
-                        ax.plot(s["mean"], yy, 'o', color=col, ms=max(4.5, cfg["marker_size"] / 10))
-    
-            ax.set_xlim(x_lo, x_hi)
-            ax.set_ylim(0.35, 6.95)
-            ax.set_yticks([density_y0] + row_centers)
-            ax.set_yticklabels(["Normal distribution"] + row_names)
-            apply_ax_style(ax, title, "", "", legend=False, plot_key="Descriptive summary")
-            ax.grid(axis="x", alpha=cfg["grid_alpha"])
-    
-            if cfg["show_legend"] and len(labels) > 1:
-                handles = [plt.Line2D([0], [0], color=colors[i], marker='o', lw=cfg["line_width"], ls=cfg["line_style"], label=labels[i]) for i in range(len(labels))]
-                ax.legend(handles=handles, frameon=False, loc=cfg["legend_loc"])
-    
-            axr.axis("off")
-            axr.set_title("Graphical Summary with Descriptive Statistics", fontsize=13, weight="bold", pad=10)
-    
-            rows = []
-            if len(stats_list) == 1:
-                s = stats_list[0]
-                rows = [
-                    ["Normality (AD), p-value", f"{s['ad_p']:.3f}" if pd.notna(s['ad_p']) else "-"],
-                    ["Normality (Shapiro), p-value", f"{s['shapiro_p']:.3f}" if pd.notna(s['shapiro_p']) else "-"],
-                    ["Mean", f"{s['mean']:.3f}"],
-                    ["SD", f"{s['sd']:.3f}"],
-                    ["N", f"{s['n']:.0f}"],
-                    ["Variance", f"{s['var']:.3f}"],
-                    ["Minimum", f"{s['min']:.3f}"],
-                    ["1st Quartile", f"{s['q1']:.3f}"],
-                    ["Median", f"{s['median']:.3f}"],
-                    ["3rd Quartile", f"{s['q3']:.3f}"],
-                    ["Maximum", f"{s['max']:.3f}"],
-                    [f"{tol_cov}%/{tol_conf}% Tol. Int. Lower", f"{s['tol_lower']:.3f}"],
-                    [f"{tol_cov}%/{tol_conf}% Tol. Int. Upper", f"{s['tol_upper']:.3f}"],
-                    [f"{mean_ci_conf}% LCI for Mean", f"{s['ci_lower']:.3f}"],
-                    [f"{mean_ci_conf}% UCI for Mean", f"{s['ci_upper']:.3f}"],
-                ]
-                x0, x1 = 0.02, 0.84
-                y = 0.94
-                axr.text(0.65, 0.98, s["label"], ha="center", va="top", fontsize=12, weight="bold")
-                for label, val in rows:
-                    axr.text(x0, y, label, ha="left", va="center", fontsize=10.5, weight="bold")
-                    axr.text(x1, y, val, ha="right", va="center", fontsize=10.5)
-                    y -= 0.06
-            else:
-                s1, s2 = stats_list[:2]
-                x0, x1, x2 = 0.02, 0.72, 0.95
-                y = 0.94
-                axr.text(x1, 0.98, s1["label"], ha="center", va="top", fontsize=12, weight="bold")
-                axr.text(x2, 0.98, s2["label"], ha="center", va="top", fontsize=12, weight="bold")
-                rows = [
-                    ["Normality (AD), p-value", f"{s1['ad_p']:.3f}" if pd.notna(s1['ad_p']) else "-", f"{s2['ad_p']:.3f}" if pd.notna(s2['ad_p']) else "-"],
-                    ["Mean", f"{s1['mean']:.3f}", f"{s2['mean']:.3f}"],
-                    ["SD", f"{s1['sd']:.3f}", f"{s2['sd']:.3f}"],
-                    ["N", f"{s1['n']:.3f}", f"{s2['n']:.3f}"],
-                    ["Variance", f"{s1['var']:.3f}", f"{s2['var']:.3f}"],
-                    ["Minimum", f"{s1['min']:.3f}", f"{s2['min']:.3f}"],
-                    ["1st Quartile", f"{s1['q1']:.3f}", f"{s2['q1']:.3f}"],
-                    ["Median", f"{s1['median']:.3f}", f"{s2['median']:.3f}"],
-                    ["3rd Quartile", f"{s1['q3']:.3f}", f"{s2['q3']:.3f}"],
-                    ["Maximum", f"{s1['max']:.3f}", f"{s2['max']:.3f}"],
-                    [f"{tol_cov}%/{tol_conf}% Tol. Int. Lower", f"{s1['tol_lower']:.3f}", f"{s2['tol_lower']:.3f}"],
-                    [f"{tol_cov}%/{tol_conf}% Tol. Int. Upper", f"{s1['tol_upper']:.3f}", f"{s2['tol_upper']:.3f}"],
-                    [f"{mean_ci_conf}% LCI for Mean", f"{s1['ci_lower']:.3f}", f"{s2['ci_lower']:.3f}"],
-                    [f"{mean_ci_conf}% UCI for Mean", f"{s1['ci_upper']:.3f}", f"{s2['ci_upper']:.3f}"],
-                ]
-                for label, v1, v2 in rows:
-                    axr.text(x0, y, label, ha="left", va="center", fontsize=10.5, weight="bold")
-                    axr.text(x1, y, v1, ha="center", va="center", fontsize=10.5)
-                    axr.text(x2, y, v2, ha="center", va="center", fontsize=10.5)
-                    y -= 0.06
-    
-            fig.tight_layout()
+                y = ypos[i]
+                col = colors[i % len(colors)]
+
+                ax.hlines(y, s["min"], s["max"], color=col, lw=max(1.2, cfg["line_width"]))
+                ax.hlines(y, s["q1"], s["q3"], color=col, lw=max(4, cfg["line_width"] + 2))
+                ax.scatter([s["median"]], [y], color=col, s=max(25, cfg["marker_size"]))
+                if pd.notna(s["ci_lower"]) and pd.notna(s["ci_upper"]):
+                    ax.hlines(y - 0.18, s["ci_lower"], s["ci_upper"], color=col, lw=max(1.0, cfg["aux_line_width"]), ls=cfg["aux_line_style"])
+                if pd.notna(s["tol_lower"]) and pd.notna(s["tol_upper"]):
+                    ax.hlines(y + 0.18, s["tol_lower"], s["tol_upper"], color=col, lw=max(1.0, cfg["aux_line_width"]), ls=":")
+
+            ax.set_yticks(ypos)
+            ax.set_yticklabels(labels)
+            apply_ax_style(ax, title, "Value", "", legend=False, plot_key="Descriptive summary")
             return fig
-    
+
         if data_input:
             df = parse_pasted_table(data_input, header=True)
             if df is None or df.empty:
@@ -398,14 +256,13 @@ def render():
             else:
                 st.success(f"Loaded {df.shape[0]} rows × {df.shape[1]} columns")
                 with st.expander("Preview data"):
-                    st.dataframe(df, use_container_width=True)
-    
+                    st.dataframe(df, width="stretch")
+
                 numeric_cols = get_numeric_columns(df)
                 if len(numeric_cols) == 0:
                     st.error("No numeric columns were detected.")
                 else:
-                    is_single = len(numeric_cols) == 1
-                    if is_single:
+                    if len(numeric_cols) == 1:
                         ref_col = numeric_cols[0]
                         test_col = None
                         st.info(f"Single numeric column detected: {ref_col}")
@@ -416,186 +273,178 @@ def render():
                         with c2:
                             test_candidates = [c for c in numeric_cols if c != ref_col]
                             test_col = st.selectbox("Test column", test_candidates, index=0)
-    
-                    auto_run_desc = True
-                if auto_run_desc:
-                        ref = to_numeric(df[ref_col]).dropna().to_numpy()
-                        if len(ref) < 3:
-                            st.error("Reference column must contain at least 3 numeric values.")
-                        else:
-                            ref_stats = _one_sample_summary(ref, ref_col, ci_conf=mean_ci_conf / 100, tol_p=tol_cov / 100, tol_confidence=tol_conf / 100)
-                            ref_stats["raw"] = ref
-    
-                            tables = {}
-                            figs = {}
-    
-                            summary_tbl = pd.DataFrame({
-                                "Groups": [ref_col],
-                                "Count": [ref_stats["n"]],
-                                "Sum": [ref_stats["sum"]],
-                                "Average": [ref_stats["mean"]],
-                                "StDev": [ref_stats["sd"]],
-                                f"{mean_ci_conf}% CI ±": [ref_stats["ci_half"]],
-                            })
-    
-                            normality_tbl = pd.DataFrame([
-                                {"Test": "Anderson-Darling", "Group": ref_col, "Statistic": ref_stats["ad_stat"], "P-Value": ref_stats["ad_p"], "Comment": f"{'Normally distributed' if pd.notna(ref_stats['ad_p']) and ref_stats['ad_p'] >= alpha else 'Possible non-normality'} (p {'>=' if pd.notna(ref_stats['ad_p']) and ref_stats['ad_p'] >= alpha else '<'} {alpha:.3f})" if pd.notna(ref_stats['ad_p']) else "AD test not available"},
-                                {"Test": "Shapiro-Wilk", "Group": ref_col, "Statistic": ref_stats["shapiro_stat"], "P-Value": ref_stats["shapiro_p"], "Comment": f"{'Normally distributed' if pd.notna(ref_stats['shapiro_p']) and ref_stats['shapiro_p'] >= alpha else 'Possible non-normality'} (p {'>=' if pd.notna(ref_stats['shapiro_p']) and ref_stats['shapiro_p'] >= alpha else '<'} {alpha:.3f})" if pd.notna(ref_stats['shapiro_p']) else "Shapiro test not available"},
-                            ])
-    
-                            st.markdown("### Tables")
-                            report_table(summary_tbl, "Summary of Means", decimals)
-                            report_table(normality_tbl, "Normality Tests", decimals)
-                            tables["Summary of Means"] = summary_tbl
-                            tables["Normality Tests"] = normality_tbl
-    
-                            fig = _graphical_summary_figure([ref_stats], f"Graphical Summary: {ref_col}")
-                            st.markdown("### Graphical Summary")
-                            st.pyplot(fig)
-                            figs["Graphical Summary"] = fig_to_png_bytes(fig)
-                            plt.close(fig)
-    
-                            export_results(
-                                prefix="descriptive_statistics_single",
-                                report_title="Statistical Analysis Report",
-                                module_name="Descriptive Statistics",
-                                statistical_analysis="This one-sample descriptive analysis summarizes a single quantitative variable using count, sum, mean, standard deviation, quartiles, minimum and maximum. It also checks normality using Anderson-Darling and Shapiro-Wilk tests, computes a confidence interval for the mean, and calculates a normal-theory tolerance interval.",
-                                offer_text="It offers a compact graphical and tabular summary for a single population, helping you assess central tendency, spread, distribution shape, normality, confidence bounds for the mean, and an interval that is expected to cover a chosen proportion of the population.",
-                                python_tools="Python tools used in this analysis include pandas and numpy for data handling and descriptive calculations, scipy.stats and statsmodels for normality tests and interval calculations, matplotlib for the graphical summary, openpyxl for Excel export, and reportlab for the PDF-style report.",
-                                table_map=tables,
-                                figure_map=figs,
-                                conclusion=f"The variable {ref_col} was summarized with descriptive statistics and normality checks. Review the graphical summary, the mean confidence interval, and the tolerance interval to judge both the center and the expected spread of the population.",
-                                decimals=decimals,
-                            )
-    
-                            if not is_single and test_col is not None:
-                                test = to_numeric(df[test_col]).dropna().to_numpy()
-                                if len(test) < 3:
-                                    st.error("Test column must contain at least 3 numeric values.")
-                                else:
-                                    test_stats = _one_sample_summary(test, test_col, ci_conf=mean_ci_conf / 100, tol_p=tol_cov / 100, tol_confidence=tol_conf / 100)
-                                    test_stats["raw"] = test
-    
-                                    summary_tbl = pd.DataFrame({
-                                        "Groups": [ref_col, test_col],
-                                        "Count": [ref_stats["n"], test_stats["n"]],
-                                        "Sum": [ref_stats["sum"], test_stats["sum"]],
-                                        "Average": [ref_stats["mean"], test_stats["mean"]],
-                                        "StDev": [ref_stats["sd"], test_stats["sd"]],
-                                        f"{mean_ci_conf}% CI ±": [ref_stats["ci_half"], test_stats["ci_half"]],
-                                    })
-    
-                                    normality_tbl = pd.DataFrame([
-                                        {"Test": "Anderson-Darling", "Group": ref_col, "Statistic": ref_stats["ad_stat"], "P-Value": ref_stats["ad_p"], "Comment": "Normally distributed" if pd.notna(ref_stats["ad_p"]) and ref_stats["ad_p"] >= alpha else "Possible non-normality"},
-                                        {"Test": "Anderson-Darling", "Group": test_col, "Statistic": test_stats["ad_stat"], "P-Value": test_stats["ad_p"], "Comment": "Normally distributed" if pd.notna(test_stats["ad_p"]) and test_stats["ad_p"] >= alpha else "Possible non-normality"},
-                                        {"Test": "Shapiro-Wilk", "Group": ref_col, "Statistic": ref_stats["shapiro_stat"], "P-Value": ref_stats["shapiro_p"], "Comment": "Normally distributed" if pd.notna(ref_stats["shapiro_p"]) and ref_stats["shapiro_p"] >= alpha else "Possible non-normality"},
-                                        {"Test": "Shapiro-Wilk", "Group": test_col, "Statistic": test_stats["shapiro_stat"], "P-Value": test_stats["shapiro_p"], "Comment": "Normally distributed" if pd.notna(test_stats["shapiro_p"]) and test_stats["shapiro_p"] >= alpha else "Possible non-normality"},
-                                    ])
-    
-                                    f_stat, f_p = _f_test_equal_var(ref, test)
-                                    lev_stat, lev_p = stats.levene(ref, test, center="mean")
-                                    eqvar_tbl = pd.DataFrame([
-                                        {"Test": "F Test", "Statistic": f_stat, "P-Value": f_p, "Comment": "Equal variances" if pd.notna(f_p) and f_p >= alpha else "Unequal variances"},
-                                        {"Test": "Levene's Test (mean)", "Statistic": lev_stat, "P-Value": lev_p, "Comment": "Equal variances" if lev_p >= alpha else "Unequal variances"},
-                                    ])
-    
-                                    t_eq = stats.ttest_ind(ref, test, equal_var=True)
-                                    t_welch = stats.ttest_ind(ref, test, equal_var=False)
-                                    mw = stats.mannwhitneyu(ref, test, alternative="two-sided")
-                                    comp_tbl = pd.DataFrame([
-                                        {"Test": "Student t-test", "Statistic": t_eq.statistic, "P-Value": t_eq.pvalue, "Comment": "Difference in means" if t_eq.pvalue < alpha else "No evidence of difference in means"},
-                                        {"Test": "Welch t-test", "Statistic": t_welch.statistic, "P-Value": t_welch.pvalue, "Comment": "Difference in means" if t_welch.pvalue < alpha else "No evidence of difference in means"},
-                                        {"Test": "Mann-Whitney U", "Statistic": mw.statistic, "P-Value": mw.pvalue, "Comment": "Difference in distributions" if mw.pvalue < alpha else "No evidence of distributional difference"},
-                                    ])
-    
-                                    anova_tbl, mse, ss_between, ss_total = _anova_two_groups(ref, test)
-                                    rsq = ss_between / ss_total if ss_total > 0 else np.nan
-                                    rsq_adj = 1 - (1 - rsq) * ((len(ref) + len(test) - 1) / (len(ref) + len(test) - 2 - 0)) if (len(ref) + len(test) - 2) > 0 and pd.notna(rsq) else np.nan
-                                    model_tbl = pd.DataFrame({"Pooled SD": [np.sqrt(mse)], "R²": [rsq], "R² (adj)": [rsq_adj]})
-    
-                                    shaded = _acceptance_band(ref, test, alpha_level=alpha)
-                                    graph_tbl = pd.DataFrame({
-                                        "Reference": [ref_col],
-                                        "Reference Mean": [ref_stats["mean"]],
-                                        "Acceptance Lower": [shaded[0]],
-                                        "Acceptance Upper": [shaded[1]],
-                                        "Test Mean": [test_stats["mean"]],
-                                    })
-    
-                                    st.markdown("### Comparison Tables")
-                                    report_table(summary_tbl, "Summary of Means", decimals)
-                                    report_table(normality_tbl, "Normality Tests", decimals)
-                                    report_table(eqvar_tbl, "Equal Variances Test", decimals)
-                                    report_table(anova_tbl, "ANOVA", decimals)
-                                    report_table(model_tbl, "Model Summary (ANOVA)", decimals)
-                                    report_table(comp_tbl, "Mean / Distribution Comparison", decimals)
-    
-                                    tables = {
-                                        "Summary of Means": summary_tbl,
-                                        "Normality Tests": normality_tbl,
-                                        "Equal Variances Test": eqvar_tbl,
-                                        "ANOVA": anova_tbl,
-                                        "Model Summary (ANOVA)": model_tbl,
-                                        "Mean / Distribution Comparison": comp_tbl,
-                                        "Acceptance Range": graph_tbl,
-                                    }
-    
-                                    shade_label = f"p > {alpha:.3f} zone around {ref_col} mean"
-                                    fig = _graphical_summary_figure([ref_stats, test_stats], f"Graphical Summary: {ref_col} vs {test_col}", shaded_range=shaded, shaded_label=shade_label)
-                                    st.markdown("### Graphical Summary")
-                                    info_box(f"The shaded area is centered on the reference mean and spans the range in which the test mean would remain within the two-sided t-test acceptance zone at α = {alpha:.3f}, using the pooled within-group variance.")
-                                    st.pyplot(fig)
-                                    figs = {"Graphical Summary": fig_to_png_bytes(fig)}
-                                    plt.close(fig)
-    
-                                    equal_var_msg = "equal variances" if lev_p >= alpha else "unequal variances"
-                                    conclusion = (
-                                        f"{ref_col} was treated as the reference and {test_col} as the test population. "
-                                        f"The shaded region in the graph shows the approximate range around the reference mean that would keep the test mean non-significant at α = {alpha:.3f} under the pooled-variance t-test framework. "
-                                        f"The variance assessment suggested {equal_var_msg}. Review the Student/Welch and Mann-Whitney results together with the graphical summary before concluding whether the two populations differ in mean or broader distribution."
-                                    )
-    
-                                    export_results(
-                                        prefix="descriptive_statistics_comparison",
-                                        report_title="Statistical Analysis Report",
-                                        module_name="Descriptive Statistics / Two-Group Comparison",
-                                        statistical_analysis="This analysis summarizes each selected population using descriptive statistics, normality tests, confidence intervals for the mean, and normal-theory tolerance intervals. When both a reference and a test column are selected, it also evaluates equality of variances and compares the two populations using Student's t-test, Welch's t-test, Mann-Whitney U, and a two-group ANOVA summary. The shaded band in the graphical summary is centered on the reference mean and represents the approximate region in which the test mean would remain non-significant at the chosen alpha level using the pooled within-group error term.",
-                                        offer_text="It offers a report-ready way to summarize one population or compare two populations for difference in means, variability, and overall distribution. It also shows whether the test mean stays within the practical acceptance region around the reference mean, which is useful when you want a quick visual link between mean separation and the p-value threshold.",
-                                        python_tools="Python tools used in this analysis include pandas and numpy for cleaning and calculations, scipy.stats for t-tests, Levene, Shapiro-Wilk, F distributions, and tolerance-related statistics, statsmodels for Anderson-Darling normality testing, matplotlib for the graphical summary, openpyxl for Excel export, and reportlab for the PDF-style report.",
-                                        table_map=tables,
-                                        figure_map=figs,
-                                        conclusion=conclusion,
-                                        decimals=decimals,
-                                    )
-    
-    
-    
-    # -------------------------------------------------
 
-    # App 02 Regression Intervals
-    # -------------------------------------------------
+                    ref = to_numeric(df[ref_col]).dropna().to_numpy()
+                    if len(ref) < 3:
+                        st.error("Reference column must contain at least 3 numeric values.")
+                    else:
+                        ref_stats = _one_sample_summary(ref, ref_col, ci_conf=mean_ci_conf / 100, tol_p=tol_cov / 100, tol_confidence=tol_conf / 100)
+                        ref_stats["raw"] = ref
+
+                        tables = {}
+                        figs = {}
+
+                        summary_tbl = pd.DataFrame({
+                            "Groups": [ref_col],
+                            "Count": [ref_stats["n"]],
+                            "Sum": [ref_stats["sum"]],
+                            "Average": [ref_stats["mean"]],
+                            "StDev": [ref_stats["sd"]],
+                            f"{mean_ci_conf}% CI ±": [ref_stats["ci_half"]],
+                        })
+
+                        normality_tbl = pd.DataFrame([
+                            {"Test": "Anderson-Darling", "Group": ref_col, "Statistic": ref_stats["ad_stat"], "P-Value": ref_stats["ad_p"], "Comment": f"{'Normally distributed' if pd.notna(ref_stats['ad_p']) and ref_stats['ad_p'] >= alpha else 'Possible non-normality'}"},
+                            {"Test": "Shapiro-Wilk", "Group": ref_col, "Statistic": ref_stats["shapiro_stat"], "P-Value": ref_stats["shapiro_p"], "Comment": f"{'Normally distributed' if pd.notna(ref_stats['shapiro_p']) and ref_stats['shapiro_p'] >= alpha else 'Possible non-normality'}"},
+                        ])
+
+                        st.markdown("### Tables")
+                        report_table(summary_tbl, "Summary of Means", decimals)
+                        report_table(normality_tbl, "Normality Tests", decimals)
+                        tables["Summary of Means"] = summary_tbl
+                        tables["Normality Tests"] = normality_tbl
+
+                        fig = _graphical_summary_figure([ref_stats], f"Graphical Summary: {ref_col}")
+                        st.markdown("### Graphical Summary")
+                        st.pyplot(fig)
+                        figs["Graphical Summary"] = fig_to_png_bytes(fig)
+                        plt.close(fig)
+
+                        export_results(
+                            prefix="descriptive_statistics_single",
+                            report_title="Statistical Analysis Report",
+                            module_name="Descriptive Statistics",
+                            statistical_analysis="This one-sample descriptive analysis summarizes a single quantitative variable using count, sum, mean, standard deviation, quartiles, minimum and maximum. It also checks normality using Anderson-Darling and Shapiro-Wilk tests, computes a confidence interval for the mean, and calculates a normal-theory tolerance interval.",
+                            offer_text="It offers a compact graphical and tabular summary for a single population, helping you assess central tendency, spread, distribution shape, normality, confidence bounds for the mean, and an interval that is expected to cover a chosen proportion of the population.",
+                            python_tools="Python tools used in this analysis include pandas and numpy for data handling and descriptive calculations, scipy.stats and statsmodels for normality tests and interval calculations, matplotlib for the graphical summary, openpyxl for Excel export, and reportlab for the PDF-style report.",
+                            table_map=tables,
+                            figure_map=figs,
+                            conclusion=f"The variable {ref_col} was summarized with descriptive statistics and normality checks. Review the graphical summary, the mean confidence interval, and the tolerance interval to judge both the center and the expected spread of the population.",
+                            decimals=decimals,
+                        )
+
+                        if test_col is not None:
+                            test = to_numeric(df[test_col]).dropna().to_numpy()
+                            if len(test) < 3:
+                                st.error("Test column must contain at least 3 numeric values.")
+                            else:
+                                test_stats = _one_sample_summary(test, test_col, ci_conf=mean_ci_conf / 100, tol_p=tol_cov / 100, tol_confidence=tol_conf / 100)
+                                test_stats["raw"] = test
+
+                                summary_tbl = pd.DataFrame({
+                                    "Groups": [ref_col, test_col],
+                                    "Count": [ref_stats["n"], test_stats["n"]],
+                                    "Sum": [ref_stats["sum"], test_stats["sum"]],
+                                    "Average": [ref_stats["mean"], test_stats["mean"]],
+                                    "StDev": [ref_stats["sd"], test_stats["sd"]],
+                                    f"{mean_ci_conf}% CI ±": [ref_stats["ci_half"], test_stats["ci_half"]],
+                                })
+
+                                normality_tbl = pd.DataFrame([
+                                    {"Test": "Anderson-Darling", "Group": ref_col, "Statistic": ref_stats["ad_stat"], "P-Value": ref_stats["ad_p"], "Comment": "Normally distributed" if pd.notna(ref_stats["ad_p"]) and ref_stats["ad_p"] >= alpha else "Possible non-normality"},
+                                    {"Test": "Anderson-Darling", "Group": test_col, "Statistic": test_stats["ad_stat"], "P-Value": test_stats["ad_p"], "Comment": "Normally distributed" if pd.notna(test_stats["ad_p"]) and test_stats["ad_p"] >= alpha else "Possible non-normality"},
+                                    {"Test": "Shapiro-Wilk", "Group": ref_col, "Statistic": ref_stats["shapiro_stat"], "P-Value": ref_stats["shapiro_p"], "Comment": "Normally distributed" if pd.notna(ref_stats["shapiro_p"]) and ref_stats["shapiro_p"] >= alpha else "Possible non-normality"},
+                                    {"Test": "Shapiro-Wilk", "Group": test_col, "Statistic": test_stats["shapiro_stat"], "P-Value": test_stats["shapiro_p"], "Comment": "Normally distributed" if pd.notna(test_stats["shapiro_p"]) and test_stats["shapiro_p"] >= alpha else "Possible non-normality"},
+                                ])
+
+                                f_stat, f_p = _f_test_equal_var(ref, test)
+                                lev_stat, lev_p = stats.levene(ref, test, center="mean")
+                                eqvar_tbl = pd.DataFrame([
+                                    {"Test": "F Test", "Statistic": f_stat, "P-Value": f_p, "Comment": "Equal variances" if pd.notna(f_p) and f_p >= alpha else "Unequal variances"},
+                                    {"Test": "Levene's Test (mean)", "Statistic": lev_stat, "P-Value": lev_p, "Comment": "Equal variances" if lev_p >= alpha else "Unequal variances"},
+                                ])
+
+                                t_eq = stats.ttest_ind(ref, test, equal_var=True)
+                                t_welch = stats.ttest_ind(ref, test, equal_var=False)
+                                mw = stats.mannwhitneyu(ref, test, alternative="two-sided")
+                                comp_tbl = pd.DataFrame([
+                                    {"Test": "Student t-test", "Statistic": t_eq.statistic, "P-Value": t_eq.pvalue, "Comment": "Difference in means" if t_eq.pvalue < alpha else "No evidence of difference in means"},
+                                    {"Test": "Welch t-test", "Statistic": t_welch.statistic, "P-Value": t_welch.pvalue, "Comment": "Difference in means" if t_welch.pvalue < alpha else "No evidence of difference in means"},
+                                    {"Test": "Mann-Whitney U", "Statistic": mw.statistic, "P-Value": mw.pvalue, "Comment": "Difference in distributions" if mw.pvalue < alpha else "No evidence of distributional difference"},
+                                ])
+
+                                anova_tbl, mse, ss_between, ss_total = _anova_two_groups(ref, test)
+                                rsq = ss_between / ss_total if ss_total > 0 else np.nan
+                                rsq_adj = 1 - (1 - rsq) * ((len(ref) + len(test) - 1) / (len(ref) + len(test) - 2)) if (len(ref) + len(test) - 2) > 0 and pd.notna(rsq) else np.nan
+                                model_tbl = pd.DataFrame({"Pooled SD": [np.sqrt(mse)], "R²": [rsq], "R² (adj)": [rsq_adj]})
+
+                                shaded = _acceptance_band(ref, test, alpha_level=alpha)
+                                graph_tbl = pd.DataFrame({
+                                    "Reference": [ref_col],
+                                    "Reference Mean": [ref_stats["mean"]],
+                                    "Acceptance Lower": [shaded[0]],
+                                    "Acceptance Upper": [shaded[1]],
+                                    "Test Mean": [test_stats["mean"]],
+                                })
+
+                                st.markdown("### Comparison Tables")
+                                report_table(summary_tbl, "Summary of Means", decimals)
+                                report_table(normality_tbl, "Normality Tests", decimals)
+                                report_table(eqvar_tbl, "Equal Variances Test", decimals)
+                                report_table(anova_tbl, "ANOVA", decimals)
+                                report_table(model_tbl, "Model Summary (ANOVA)", decimals)
+                                report_table(comp_tbl, "Mean / Distribution Comparison", decimals)
+
+                                tables = {
+                                    "Summary of Means": summary_tbl,
+                                    "Normality Tests": normality_tbl,
+                                    "Equal Variances Test": eqvar_tbl,
+                                    "ANOVA": anova_tbl,
+                                    "Model Summary (ANOVA)": model_tbl,
+                                    "Mean / Distribution Comparison": comp_tbl,
+                                    "Acceptance Range": graph_tbl,
+                                }
+
+                                shade_label = f"p > {alpha:.3f} zone around {ref_col} mean"
+                                fig = _graphical_summary_figure([ref_stats, test_stats], f"Graphical Summary: {ref_col} vs {test_col}", shaded_range=shaded, shaded_label=shade_label)
+                                st.markdown("### Graphical Summary")
+                                info_box(f"The shaded area is centered on the reference mean and spans the range in which the test mean would remain within the two-sided t-test acceptance zone at α = {alpha:.3f}, using the pooled within-group variance.")
+                                st.pyplot(fig)
+                                figs = {"Graphical Summary": fig_to_png_bytes(fig)}
+                                plt.close(fig)
+
+                                equal_var_msg = "equal variances" if lev_p >= alpha else "unequal variances"
+                                conclusion = (
+                                    f"{ref_col} was treated as the reference and {test_col} as the test population. "
+                                    f"The shaded region in the graph shows the approximate range around the reference mean that would keep the test mean non-significant at α = {alpha:.3f} under the pooled-variance t-test framework. "
+                                    f"The variance assessment suggested {equal_var_msg}. Review the Student/Welch and Mann-Whitney results together with the graphical summary before concluding whether the two populations differ in mean or broader distribution."
+                                )
+
+                                export_results(
+                                    prefix="descriptive_statistics_comparison",
+                                    report_title="Statistical Analysis Report",
+                                    module_name="Descriptive Statistics / Two-Group Comparison",
+                                    statistical_analysis="This analysis summarizes each selected population using descriptive statistics, normality tests, confidence intervals for the mean, and normal-theory tolerance intervals. When both a reference and a test column are selected, it also evaluates equality of variances and compares the two populations using Student's t-test, Welch's t-test, Mann-Whitney U, and a two-group ANOVA summary. The shaded band in the graphical summary is centered on the reference mean and represents the approximate region in which the test mean would remain non-significant at the chosen alpha level using the pooled within-group error term.",
+                                    offer_text="It offers a report-ready way to summarize one population or compare two populations for difference in means, variability, and overall distribution. It also shows whether the test mean stays within the practical acceptance region around the reference mean, which is useful when you want a quick visual link between mean separation and the p-value threshold.",
+                                    python_tools="Python tools used in this analysis include pandas and numpy for cleaning and calculations, scipy.stats for t-tests, Levene, Shapiro-Wilk, F distributions, and tolerance-related statistics, statsmodels for Anderson-Darling normality testing, matplotlib for the graphical summary, openpyxl for Excel export, and reportlab for the PDF-style report.",
+                                    table_map=tables,
+                                    figure_map=figs,
+                                    conclusion=conclusion,
+                                    decimals=decimals,
+                                )
+
     if tool == "02 - Regression Intervals":
         app_header("📈 App 02 - Regression Intervals", "Linear regression with CI / PI / both, one-sided or two-sided bands, prediction points, and spec-limit crossing.")
-    
+
         left, right = st.columns([1.45, 1])
         with left:
             xy_input = st.text_area("Paste X and Y data (two Excel columns, with or without headers)", height=220)
         with right:
             x_pred_text = st.text_area("Predict X (optional)", height=110, placeholder="Paste X values to predict")
-    
+
         if xy_input:
             try:
                 data_df, x_label_detected, y_label_detected = parse_xy(xy_input)
-    
+
                 st.markdown("### Options")
                 c1, c2, c3 = st.columns([1, 1, 1.2])
                 with c1:
-                    interval_mode = st.selectbox("Interval", ["ci", "pi", "both"], format_func=lambda x: {"ci":"CI", "pi":"PI", "both":"Both"}[x])
+                    interval_mode = st.selectbox("Interval", ["ci", "pi", "both"], format_func=lambda x: {"ci": "CI", "pi": "PI", "both": "Both"}[x])
                 with c2:
-                    side_mode = st.selectbox("Side", ["upper", "lower", "two-sided"], format_func=lambda x: {"upper":"Upper", "lower":"Lower", "two-sided":"Two-sided"}[x])
+                    side_mode = st.selectbox("Side", ["upper", "lower", "two-sided"], format_func=lambda x: {"upper": "Upper", "lower": "Lower", "two-sided": "Two-sided"}[x])
                 with c3:
                     confidence = st.slider("Confidence", 0.80, 0.99, 0.95, 0.01, format="%.2f")
-    
+
                 c4, c5, c6, c7 = st.columns([1.2, 1.1, 1.1, 0.9])
                 with c4:
                     plot_title = st.text_input("Title", value="")
@@ -605,7 +454,7 @@ def render():
                     ylabel = st.text_input("Y label", value=y_label_detected or "Y")
                 with c7:
                     point_label = st.text_input("Point label", value="Data")
-    
+
                 c8, c9, c10, c11, c12 = st.columns([0.8, 0.9, 0.9, 0.9, 1.1])
                 with c8:
                     y_suffix = st.text_input("Y suffix", value="%")
@@ -618,7 +467,7 @@ def render():
                     decimals = st.slider("Decimals", 1, 8, DEFAULT_DECIMALS, key="reg_dec_refined")
                 with c12:
                     reg_alpha = st.number_input("Trend test α", min_value=0.0001, max_value=0.2000, value=0.0500, step=0.0050, format="%.4f", key="reg_alpha_trend")
-    
+
                 st.markdown("### Specification / crossing")
                 s1, s2, s3, s4 = st.columns([0.9, 1, 1, 1.2])
                 with s1:
@@ -632,129 +481,162 @@ def render():
                         "Crossing on",
                         ["auto", "fit", "ci_upper", "ci_lower", "pi_upper", "pi_lower"],
                         format_func=lambda x: {
-                            "auto": "Auto", "fit": "Fit", "ci_upper": "CI upper", "ci_lower": "CI lower", "pi_upper": "PI upper", "pi_lower": "PI lower"
+                            "auto": "Auto",
+                            "fit": "Fit",
+                            "ci_upper": "CI upper",
+                            "ci_lower": "CI lower",
+                            "pi_upper": "PI upper",
+                            "pi_lower": "PI lower",
                         }[x],
                         disabled=not spec_enabled,
                     )
-    
-                auto_run_reg = True
-                if auto_run_reg:
-                    pred_x = parse_x_values(x_pred_text)
-                    x_all_max = data_df["x"].max()
-                    if len(pred_x) > 0:
-                        x_all_max = max(x_all_max, np.max(pred_x))
-    
-                    def parse_optional_float(txt):
-                        txt = str(txt).strip()
-                        return None if txt == "" else float(txt)
-    
-                    x_min = common.parse_optional_float(x_min_txt)
-                    x_max = common.parse_optional_float(x_max_txt)
-                    if x_min is None:
-                        x_min = min(0.0, float(data_df["x"].min()))
-                    if x_max is None:
-                        x_max = x_all_max * 1.15 if x_all_max != 0 else 1.0
-                    if x_max <= x_min:
-                        raise ValueError("X max must be greater than X min.")
-    
-                    grid_x = np.linspace(x_min, x_max, 500)
-                    model = reg_fit_linear_model(data_df["x"], data_df["y"])
-                    reg_stats = regression_anova_and_coefficients_local(data_df["x"], data_df["y"], alpha=reg_alpha)
-                    grid_df = reg_predict_with_intervals(model, grid_x, confidence=confidence, side=side_mode)
-    
-                    fig_main, crossing_x = plot_regression_advanced(
-                        data_df=data_df,
-                        model=model,
-                        grid_df=grid_df,
-                        confidence=confidence,
-                        interval=interval_mode,
-                        side=side_mode,
-                        title=plot_title,
-                        xlabel=xlabel,
-                        ylabel=ylabel,
-                        point_label=point_label,
-                        y_suffix=y_suffix,
-                        spec_enabled=spec_enabled,
-                        spec_limit=common.parse_optional_float(spec_value_txt) if spec_enabled else None,
-                        spec_label=spec_label,
-                        crossing_on=crossing_on,
-                    )
-                    st.pyplot(fig_main)
-    
-                    summary_tbl = pd.DataFrame({
-                        "Intercept": [model["intercept"]],
-                        "Slope": [model["slope"]],
-                        "R²": [model["r2"]],
-                        "Residual SD (s)": [model["s"]],
-                        "Degrees of Freedom": [model["df"]],
-                    })
-                    if crossing_x is not None:
-                        summary_tbl["Crossing Point"] = [crossing_x]
-                    report_table(summary_tbl, "Regression model summary", decimals)
-    
-                    report_table(data_df.rename(columns={"x": "X Value", "y": "Actual Y"}), "Table 1: Parsed input data", decimals)
-    
-                    new_pred_x = np.setdiff1d(pred_x, data_df["x"].to_numpy()) if len(pred_x) > 0 else np.array([])
-                    if len(new_pred_x) > 0:
-                        new_pts_df = pd.DataFrame({"x": new_pred_x, "y": np.nan})
-                        combined_pts_df = pd.concat([data_df[["x", "y"]], new_pts_df], ignore_index=True)
+
+                pred_x = parse_x_values(x_pred_text)
+                x_all_max = data_df["x"].max()
+                if len(pred_x) > 0:
+                    x_all_max = max(x_all_max, np.max(pred_x))
+
+                x_min = common.parse_optional_float(x_min_txt)
+                x_max = common.parse_optional_float(x_max_txt)
+                if x_min is None:
+                    x_min = min(0.0, float(data_df["x"].min()))
+                if x_max is None:
+                    x_max = x_all_max * 1.15 if x_all_max != 0 else 1.0
+                if x_max <= x_min:
+                    raise ValueError("X max must be greater than X min.")
+
+                grid_x = np.linspace(x_min, x_max, 500)
+                model = reg_fit_linear_model(data_df["x"], data_df["y"])
+                reg_stats = regression_anova_and_coefficients_local(data_df["x"], data_df["y"], alpha=reg_alpha)
+                grid_df = reg_predict_with_intervals(model, grid_x, confidence=confidence, side=side_mode)
+
+                cfg = common.safe_get_plot_cfg("Regression Analysis")
+                fig_main, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+                ax.scatter(data_df["x"], data_df["y"], color=cfg["marker_color"], s=cfg["marker_size"], alpha=0.85, label=point_label, zorder=3)
+                ax.plot(grid_df["x"], grid_df["fit"], color=cfg["line_color"], lw=cfg["line_width"], ls=cfg["line_style"], label="Fitted Line")
+
+                if interval_mode in ["ci", "both"]:
+                    if side_mode == "two-sided":
+                        ax.fill_between(grid_df["x"], grid_df["ci_lower"], grid_df["ci_upper"], color=cfg["band_color"], alpha=0.18, label="Confidence Interval")
+                        ax.plot(grid_df["x"], grid_df["ci_upper"], color=cfg["band_color"], ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
+                        ax.plot(grid_df["x"], grid_df["ci_lower"], color=cfg["band_color"], ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
+                    elif side_mode == "upper":
+                        ax.fill_between(grid_df["x"], grid_df["fit"], grid_df["ci_upper"], color=cfg["band_color"], alpha=0.18, label="Upper CI")
+                        ax.plot(grid_df["x"], grid_df["ci_upper"], color=cfg["band_color"], ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
                     else:
-                        combined_pts_df = data_df[["x", "y"]].copy()
-                    combined_pts_df = combined_pts_df.sort_values("x").reset_index(drop=True)
-                    unique_x = combined_pts_df["x"].unique()
-                    intervals_df = reg_predict_with_intervals(model, unique_x, confidence=confidence, side=side_mode)
-                    final_table_df = pd.merge(combined_pts_df, intervals_df, on="x", how="left")
-                    final_table_df = final_table_df[[c for c in ["x", "y", "fit", "ci_lower", "ci_upper", "pi_lower", "pi_upper"] if c in final_table_df.columns]]
-                    final_table_df.columns = ["X Value", "Actual Y", "Fitted Y", "Lower CI", "Upper CI", "Lower PI", "Upper PI"]
-                    report_table(final_table_df, "Table 2: Fitted values and intervals", decimals)
-    
-                    fig_res = residual_plot(model["fitted"], model["resid"], xlabel="Fitted values", ylabel="Residuals", title="Residuals vs fitted")
-                    st.pyplot(fig_res)
-                    fig_qq = qq_plot(model["resid"], title="Normal probability plot of regression residuals")
-                    st.pyplot(fig_qq)
-    
-                    crossing_text = f" A crossing with the selected specification limit was identified at x = {crossing_x:.{decimals}f}." if crossing_x is not None else " No crossing with the selected specification limit was identified in the displayed X range."
-                    conclusion = (
-                        f"A simple linear regression was fitted to {len(data_df)} observations. "
-                        f"The fitted equation was y = {model['intercept']:.{decimals}f} + {model['slope']:.{decimals}f} × x, "
-                        f"with R² = {model['r2']:.{decimals}f} and residual SD = {model['s']:.{decimals}f}. "
-                        f"The analysis displayed {('confidence intervals' if interval_mode == 'ci' else 'prediction intervals' if interval_mode == 'pi' else 'both confidence and prediction intervals')} using a {side_mode} setting at {confidence:.0%} confidence. A slope significance test gave p = {reg_stats["slope_p_value"]:.{min(4, DEFAULT_DECIMALS)}g}. " + crossing_text
-                    )
-                    export_results(
-                        prefix="regression_intervals_refined",
-                        report_title="Statistical Analysis Report",
-                        module_name="Regression Intervals",
-                        statistical_analysis=(
-                            "A simple linear regression model was fitted to the pasted X and Y data using ordinary least squares. "
-                            "The analysis estimates the intercept and slope of the linear relationship, summarizes goodness of fit using R² and residual standard deviation, "
-                            "and then calculates confidence intervals for the fitted mean response and prediction intervals for future observations. "
-                            "The module also allows one-sided or two-sided interval construction, tests whether the slope differs significantly from zero using both coefficient and ANOVA outputs, and can estimate a crossing point against a user-defined specification limit."
-                        ),
-                        offer_text=(
-                            "This analysis offers a practical way to evaluate linear trends over X, quantify the expected response at user-selected X values, "
-                            "compare observed responses with fitted values, assess whether a statistically significant linear trend is present, and distinguish between uncertainty in the average response and variability expected for individual future measurements. "
-                            "When a specification limit is supplied, it can also estimate where the fitted curve or selected interval band crosses that limit."
-                        ),
-                        python_tools=(
-                            "Python tools used here include pandas for parsing pasted Excel-style data, numpy for matrix algebra and grid generation, "
-                            "scipy.stats for t-based interval calculations, matplotlib for the fitted-curve, residual, and normal probability plots, "
-                            "openpyxl for Excel export, and reportlab for the PDF-style report."
-                        ),
-                        table_map={
-                            "Regression Model Summary": summary_tbl,
-                            "Regression Coefficients": reg_stats["coefficients"],
-                            "Regression ANOVA": reg_stats["anova"],
-                            "Parsed Input Data": data_df.rename(columns={"x": "X Value", "y": "Actual Y"}),
-                            "Fitted Values and Intervals": final_table_df,
-                        },
-                        figure_map={
-                            "Regression plot": fig_to_png_bytes(fig_main),
-                            "Residuals vs fitted": fig_to_png_bytes(fig_res),
-                            "Normal probability plot": fig_to_png_bytes(fig_qq),
-                        },
-                        conclusion=conclusion,
-                        decimals=decimals,
-                    )
+                        ax.fill_between(grid_df["x"], grid_df["ci_lower"], grid_df["fit"], color=cfg["band_color"], alpha=0.18, label="Lower CI")
+                        ax.plot(grid_df["x"], grid_df["ci_lower"], color=cfg["band_color"], ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
+
+                if interval_mode in ["pi", "both"]:
+                    if side_mode == "two-sided":
+                        ax.fill_between(grid_df["x"], grid_df["pi_lower"], grid_df["pi_upper"], color=cfg["secondary_color"], alpha=0.10, label="Prediction Interval")
+                        ax.plot(grid_df["x"], grid_df["pi_upper"], color=cfg["secondary_color"], ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
+                        ax.plot(grid_df["x"], grid_df["pi_lower"], color=cfg["secondary_color"], ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
+                    elif side_mode == "upper":
+                        ax.fill_between(grid_df["x"], grid_df["fit"], grid_df["pi_upper"], color=cfg["secondary_color"], alpha=0.10, label="Upper PI")
+                        ax.plot(grid_df["x"], grid_df["pi_upper"], color=cfg["secondary_color"], ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
+                    else:
+                        ax.fill_between(grid_df["x"], grid_df["pi_lower"], grid_df["fit"], color=cfg["secondary_color"], alpha=0.10, label="Lower PI")
+                        ax.plot(grid_df["x"], grid_df["pi_lower"], color=cfg["secondary_color"], ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
+
+                crossing_x = None
+                if spec_enabled:
+                    spec_limit = common.parse_optional_float(spec_value_txt)
+                    ax.axhline(spec_limit, color=cfg["tertiary_color"], ls=cfg["aux_line_style"], lw=cfg["line_width"], label=f"Limit ({spec_label})")
+                    curve_map = {
+                        "fit": grid_df["fit"].to_numpy(),
+                        "ci_upper": grid_df["ci_upper"].to_numpy(),
+                        "ci_lower": grid_df["ci_lower"].to_numpy(),
+                        "pi_upper": grid_df["pi_upper"].to_numpy(),
+                        "pi_lower": grid_df["pi_lower"].to_numpy(),
+                    }
+                    if crossing_on == "auto":
+                        if interval_mode in ["both", "pi"]:
+                            crossing_on = "pi_upper" if side_mode == "upper" else "pi_lower" if side_mode == "lower" else "pi_upper"
+                        else:
+                            crossing_on = "ci_upper" if side_mode == "upper" else "ci_lower" if side_mode == "lower" else "ci_upper"
+                    if crossing_on in curve_map:
+                        crossing_x = reg_find_crossing(grid_df["x"].to_numpy(), curve_map[crossing_on], spec_limit)
+                        if crossing_x is not None:
+                            ax.axvline(crossing_x, color=cfg["tertiary_color"], ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
+
+                if y_suffix:
+                    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, pos: f"{v:.1f}{y_suffix}"))
+
+                title = plot_title.strip()
+                if not title:
+                    title = "Regression Intervals"
+
+                apply_ax_style(ax, title, xlabel, ylabel, legend=True, plot_key="Regression Analysis")
+                st.pyplot(fig_main)
+
+                summary_tbl = pd.DataFrame({
+                    "Intercept": [model["intercept"]],
+                    "Slope": [model["slope"]],
+                    "R²": [model["r2"]],
+                    "Residual SD (s)": [model["s"]],
+                    "Degrees of Freedom": [model["df"]],
+                })
+                if crossing_x is not None:
+                    summary_tbl["Crossing Point"] = [crossing_x]
+
+                report_table(summary_tbl, "Regression model summary", decimals)
+                report_table(data_df.rename(columns={"x": "X Value", "y": "Actual Y"}), "Table 1: Parsed input data", decimals)
+                report_table(reg_stats["coefficients"], "Table 2: Regression coefficients", decimals)
+                report_table(reg_stats["anova"], "Table 3: ANOVA for slope / regression", decimals)
+
+                new_pred_x = np.setdiff1d(pred_x, data_df["x"].to_numpy()) if len(pred_x) > 0 else np.array([])
+                if len(new_pred_x) > 0:
+                    new_pts_df = pd.DataFrame({"x": new_pred_x, "y": np.nan})
+                    combined_pts_df = pd.concat([data_df[["x", "y"]], new_pts_df], ignore_index=True)
+                else:
+                    combined_pts_df = data_df[["x", "y"]].copy()
+
+                combined_pts_df = combined_pts_df.sort_values("x").reset_index(drop=True)
+                unique_x = combined_pts_df["x"].unique()
+                intervals_df = reg_predict_with_intervals(model, unique_x, confidence=confidence, side=side_mode)
+                final_table_df = pd.merge(combined_pts_df, intervals_df, on="x", how="left")
+                final_table_df = final_table_df[[c for c in ["x", "y", "fit", "ci_lower", "ci_upper", "pi_lower", "pi_upper"] if c in final_table_df.columns]]
+                final_table_df.columns = ["X Value", "Actual Y", "Fitted Y", "Lower CI", "Upper CI", "Lower PI", "Upper PI"]
+                report_table(final_table_df, "Table 4: Fitted values and intervals", decimals)
+
+                fig_res = residual_plot_for("Residual plot", model["fitted"], model["resid"], xlabel="Fitted values", ylabel="Residuals", title="Residuals vs fitted")
+                st.pyplot(fig_res)
+                fig_qq = qq_plot_for("Q-Q plot", model["resid"], title="Normal probability plot of regression residuals")
+                st.pyplot(fig_qq)
+
+                crossing_text = f" A crossing with the selected specification limit was identified at x = {crossing_x:.{decimals}f}." if crossing_x is not None else " No crossing with the selected specification limit was identified in the displayed X range."
+                conclusion = (
+                    f"A simple linear regression was fitted to {len(data_df)} observations. "
+                    f"The fitted equation was y = {model['intercept']:.{decimals}f} + {model['slope']:.{decimals}f} × x, "
+                    f"with R² = {model['r2']:.{decimals}f} and residual SD = {model['s']:.{decimals}f}. "
+                    f"The analysis displayed {('confidence intervals' if interval_mode == 'ci' else 'prediction intervals' if interval_mode == 'pi' else 'both confidence and prediction intervals')} using a {side_mode} setting at {confidence:.0%} confidence. A slope significance test gave p = {reg_stats['slope_p_value']:.4g}. "
+                    + crossing_text
+                )
+
+                export_results(
+                    prefix="regression_intervals_refined",
+                    report_title="Statistical Analysis Report",
+                    module_name="Regression Intervals",
+                    statistical_analysis="A simple linear regression model was fitted to the pasted X and Y data using ordinary least squares. The analysis estimates the intercept and slope of the linear relationship, summarizes goodness of fit using R² and residual standard deviation, and then calculates confidence intervals for the fitted mean response and prediction intervals for future observations. The module also allows one-sided or two-sided interval construction, tests whether the slope differs significantly from zero using both coefficient and ANOVA outputs, and can estimate a crossing point against a user-defined specification limit.",
+                    offer_text="This analysis offers a practical way to evaluate linear trends over X, quantify the expected response at user-selected X values, compare observed responses with fitted values, assess whether a statistically significant linear trend is present, and distinguish between uncertainty in the average response and variability expected for individual future measurements.",
+                    python_tools="Python tools used here include pandas for parsing pasted Excel-style data, numpy for matrix algebra and grid generation, scipy.stats for t-based interval calculations, matplotlib for the fitted-curve, residual, and normal probability plots, openpyxl for Excel export, and reportlab for the PDF-style report.",
+                    table_map={
+                        "Regression Model Summary": summary_tbl,
+                        "Regression Coefficients": reg_stats["coefficients"],
+                        "Regression ANOVA": reg_stats["anova"],
+                        "Parsed Input Data": data_df.rename(columns={"x": "X Value", "y": "Actual Y"}),
+                        "Fitted Values and Intervals": final_table_df,
+                    },
+                    figure_map={
+                        "Regression plot": fig_to_png_bytes(fig_main),
+                        "Residuals vs fitted": fig_to_png_bytes(fig_res),
+                        "Normal probability plot": fig_to_png_bytes(fig_qq),
+                    },
+                    conclusion=conclusion,
+                    decimals=decimals,
+                )
+
             except Exception as e:
                 st.error(str(e))
     
