@@ -1,7 +1,5 @@
 import modules.common as common
 from modules.common import *
-get_plot_cfg = common.get_plot_cfg
-render_display_settings = common.render_display_settings
 
 
 def _safe_factor_prefix(i):
@@ -264,7 +262,7 @@ def render():
                             safe_grid = grid.rename(columns=rename_map)
                             zz = model.predict(safe_grid).to_numpy().reshape(xx.shape)
         
-                            contour_cfg = get_plot_cfg("DoE contour")
+                            contour_cfg = common.safe_get_plot_cfg("DoE contour")
                             fig_contour, ax = plt.subplots(figsize=(contour_cfg["fig_w"], contour_cfg["fig_h"]))
                             cs = ax.contourf(xx, yy, zz, levels=20, cmap="viridis")
                             ax.contour(xx, yy, zz, levels=10, colors=contour_cfg["primary_color"], linewidths=max(0.6, contour_cfg["aux_line_width"] * 0.7))
