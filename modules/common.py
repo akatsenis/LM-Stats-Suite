@@ -35,8 +35,8 @@ from reportlab.platypus import (
 
 
 DEFAULT_DECIMALS = 3
-FIG_W = 8.5
-FIG_H = 5.5
+FIG_W = 9
+FIG_H = 5
 SHOW_LEGEND = True
 LEGEND_LOC = "best"
 PRIMARY_COLOR = "#1f77b4"
@@ -47,7 +47,7 @@ GRID_ALPHA = 0.0
 MARKER_SIZE = 20
 FIT_LINE_COLOR = PRIMARY_COLOR
 FIT_LINE_STYLE = "-"
-LINE_WIDTH = 2.0
+LINE_WIDTH = 1.0
 AREA_ALPHA = 0.18
 CI_LINE_STYLE = "--"
 PI_LINE_STYLE = "--"
@@ -93,7 +93,7 @@ def inject_css():
 PLOT_STYLE_KEYS = [
     "All graphs",
     "Descriptive summary",
-    "Regression intervals",
+    "Regression Analysis",
     "Shelf life",
     "Shelf life residual plot",
     "Shelf life Q-Q plot",
@@ -116,8 +116,8 @@ PLOT_STYLE_KEYS = [
 ]
 LINE_STYLE_MAP = {"Solid": "-", "Dash": "--", "Dot": ":", "Dash-dot": "-."}
 DEFAULT_STYLE_CFG = {
-    "fig_w": 6.8,
-    "fig_h": 4.3,
+    "fig_w": 9,
+    "fig_h": 5,
     "show_legend": True,
     "legend_loc": "best",
     "primary_color": "#1f77b4",
@@ -131,9 +131,9 @@ DEFAULT_STYLE_CFG = {
     "grid_alpha": 0.0,
     "line_style": "-",
     "aux_line_style": "--",
-    "line_width": 1.8,
-    "aux_line_width": 1.2,
-    "marker_size": 32,
+    "line_width": 1.0,
+    "aux_line_width": 1.0,
+    "marker_size": 20,
     "marker_style": "o",
     "tick_dir": "out",
     "tick_len": 4,
@@ -1075,6 +1075,75 @@ def reg_find_crossing(xv, yv, limit):
         return x1
     return x1 + (limit - y1) * (x2 - x1) / (y2 - y1)
 
+def regression_anova_and_coefficients(x, y, alpha=0.05):
+    x = np.asarray(x, dtype=float).ravel()
+    y = np.asarray(y, dtype=float).ravel()
+
+    n = len(x)
+    if n < 3:
+        raise ValueError("At least 3 points are required.")
+
+    X = np.column_stack([np.ones(n), x])
+    XtX_inv = np.linalg.inv(X.T @ X)
+    beta = XtX_inv @ (X.T @ y)
+
+    intercept, slope = beta
+    yhat = X @ beta
+    resid = y - yhat
+
+    df_reg = 1
+    df_err = n - 2
+    df_tot = n - 1
+
+    ss_reg = np.sum((yhat - np.mean(y)) ** 2)
+    ss_err = np.sum(resid ** 2)
+    ss_tot = np.sum((y - np.mean(y)) ** 2)
+
+    ms_reg = ss_reg / df_reg
+    ms_err = ss_err / df_err if df_err > 0 else np.nan
+
+    f_stat = ms_reg / ms_err if ms_err > 0 else np.nan
+    p_reg = 1 - stats.f.cdf(f_stat, df_reg, df_err) if np.isfinite(f_stat) else np.nan
+
+    se_beta = np.sqrt(np.diag(XtX_inv) * ms_err)
+    t_vals = beta / se_beta
+    p_vals = 2 * (1 - stats.t.cdf(np.abs(t_vals), df_err))
+
+    tcrit = stats.t.ppf(1 - alpha / 2, df_err)
+
+    coef_df = pd.DataFrame({
+        "Term": ["Intercept", "Slope"],
+        "Coefficient": [intercept, slope],
+        "SE Coefficient": se_beta,
+        "t Value": t_vals,
+        "p Value": p_vals,
+        "Lower CI": beta - tcrit * se_beta,
+        "Upper CI": beta + tcrit * se_beta,
+    })
+
+    anova_df = pd.DataFrame({
+        "Source": ["Regression", "Error", "Total"],
+        "DF": [df_reg, df_err, df_tot],
+        "SS": [ss_reg, ss_err, ss_tot],
+        "MS": [ms_reg, ms_err, np.nan],
+        "F": [f_stat, np.nan, np.nan],
+        "p Value": [p_reg, np.nan, np.nan],
+    })
+
+    trend_text = (
+        f"Significant linear trend detected (slope p = {p_vals[1]:.4g} < {alpha:.4g})."
+        if p_vals[1] < alpha
+        else f"No significant linear trend detected (slope p = {p_vals[1]:.4g} ≥ {alpha:.4g})."
+    )
+
+    return {
+        "anova": anova_df,
+        "coefficients": coef_df,
+        "slope_p_value": p_vals[1],
+        "regression_p_value": p_reg,
+        "f_stat": f_stat,
+        "trend_text": trend_text,
+    }
 
 def plot_regression_advanced(
     data_df,
@@ -1093,7 +1162,7 @@ def plot_regression_advanced(
     spec_label="US",
     crossing_on="auto",
 ):
-    cfg = get_plot_cfg("Regression intervals")
+    cfg = get_plot_cfg("Regression Analysis")
     x = data_df["x"].to_numpy()
     y = data_df["y"].to_numpy()
     fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
@@ -1174,7 +1243,7 @@ def plot_regression_advanced(
         s2 = {"ci": "Confidence Intervals", "pi": "Prediction Intervals", "both": "Confidence and Prediction Intervals"}[interval]
         title = f"{s1} {s2} ({confidence:.0%})"
 
-    apply_ax_style(ax, title, xlabel, ylabel, legend=True, plot_key="Regression intervals")
+    apply_ax_style(ax, title, xlabel, ylabel, legend=True, plot_key="Regression Analysis")
     return fig, crossing_x
 
 
