@@ -1,7 +1,5 @@
 import modules.common as common
 from modules.common import *
-get_plot_cfg = common.get_plot_cfg
-render_display_settings = common.render_display_settings
 
 TOOLS = ['01 - Descriptive Statistics', '02 - Regression Intervals', '03 - Shelf Life Estimator', '04 - Dissolution Comparison (f2)', '05 - Two-Sample Tests', '06 - Two-Way ANOVA', '07 - Tolerance & Confidence Intervals', '08 - PCA Analysis']
 
@@ -125,7 +123,7 @@ def render():
     
         
         def _graphical_summary_figure(stats_list, title, shaded_range=None, shaded_label=None):
-            cfg = get_plot_cfg("Descriptive summary")
+            cfg = common.safe_get_plot_cfg("Descriptive summary")
             if len(stats_list) > 1:
                 colors = [cfg["primary_color"], cfg["secondary_color"], cfg["tertiary_color"]]
             else:
@@ -1499,7 +1497,7 @@ def render():
                     if group_col != "(None)":
                         scores_df["Group"] = df.loc[X.index, group_col].astype(str).values
     
-                    score_cfg = get_plot_cfg("PCA score plot")
+                    score_cfg = common.safe_get_plot_cfg("PCA score plot")
                     fig_scores, ax = plt.subplots(figsize=(score_cfg["fig_w"], score_cfg["fig_h"]))
                     color_cycle = [score_cfg["primary_color"], score_cfg["secondary_color"], score_cfg["tertiary_color"], "#9467bd", "#8c564b", "#e377c2"]
     
@@ -1536,7 +1534,7 @@ def render():
                     apply_ax_style(ax, "PCA score plot", f"PC1 ({exp[0]:.1f}% var)", f"PC2 ({exp[1]:.1f}% var)", legend=(group_col != "(None)"), plot_key="PCA score plot")
                     st.pyplot(fig_scores)
     
-                    load_cfg = get_plot_cfg("PCA loading plot")
+                    load_cfg = common.safe_get_plot_cfg("PCA loading plot")
                     fig_load, ax2 = plt.subplots(figsize=(load_cfg["fig_w"], load_cfg["fig_h"]))
                     ax2.axhline(0, color="#64748b", lw=load_cfg["aux_line_width"], ls=load_cfg["aux_line_style"])
                     ax2.axvline(0, color="#64748b", lw=load_cfg["aux_line_width"], ls=load_cfg["aux_line_style"])
