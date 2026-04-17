@@ -235,7 +235,7 @@ def render_display_settings():
     FIT_LINE_COLOR = _all_cfg["primary_color"]; FIT_LINE_STYLE = _all_cfg["line_style"]; LINE_WIDTH = _all_cfg["line_width"]
     AREA_ALPHA = 0.18; CI_LINE_STYLE = _all_cfg["aux_line_style"]; PI_LINE_STYLE = _all_cfg["aux_line_style"]; SPEC_LINE_STYLE = _all_cfg["aux_line_style"]
     ARROW_SIZE = _all_cfg["arrow_size"]
-    st.sidebar.divider()
+    # st.sidebar.divider()
     # st.sidebar.info("Paste data from Excel. Tables, charts, Excel exports, and PDF-style reports are built into the app. Exported figures keep the current display settings.")
 
 # -------------------------------------------------
