@@ -851,3 +851,20 @@ def dis_plot_bootstrap_f2_distribution(boot_vals, observed_f2, ci_low=None, ci_h
 
 
 __all__ = [name for name in globals() if not name.startswith("_")]
+
+def app_header(title, subtitle=""):
+    st.markdown(
+        f"""
+        <div class='app-header'>
+            <div class='app-title'>{title}</div>
+            <div class='app-sub'>{subtitle}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def info_box(text):
+    st.markdown(f"<div class='report-caption'>{text}</div>", unsafe_allow_html=True)
+
+
