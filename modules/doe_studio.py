@@ -275,13 +275,11 @@ def render():
     render_display_settings()
     st.sidebar.title("🧪 DoE Studio")
     st.sidebar.markdown("Design of Experiments")
-    section = st.sidebar.radio(
-        "DoE Studio section",
-        ["Design Builder", "Analyze Responses"],
-        key="doe_studio_section",
-    )
 
-    if section == "Design Builder":
+    st.markdown("### DoE Studio")
+    tab1, tab2 = st.tabs(["Design Builder", "Analyze Responses"])
+
+    with tab1:
         _render_design_builder()
-    else:
+    with tab2:
         _render_response_analysis()
