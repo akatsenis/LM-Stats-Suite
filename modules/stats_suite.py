@@ -1,4 +1,7 @@
+import modules.common as common
 from modules.common import *
+get_plot_cfg = common.get_plot_cfg
+render_display_settings = common.render_display_settings
 
 TOOLS = ['01 - Descriptive Statistics', '02 - Regression Intervals', '03 - Shelf Life Estimator', '04 - Dissolution Comparison (f2)', '05 - Two-Sample Tests', '06 - Two-Way ANOVA', '07 - Tolerance & Confidence Intervals', '08 - PCA Analysis']
 
