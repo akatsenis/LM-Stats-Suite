@@ -119,12 +119,12 @@ DEFAULT_STYLE_CFG = {
     "secondary_color": "#ff7f0e",
     "tertiary_color": "#2ca02c",
     "band_color": "#93c5fd",
-    "grid_alpha": 0.25,
+    "grid_alpha": 0.20,
     "line_style": "-",
     "aux_line_style": "--",
-    "line_width": 2.0,
-    "aux_line_width": 1.4,
-    "marker_size": 46,
+    "line_width": 1,
+    "aux_line_width": 1,
+    "marker_size": 23,
     "tick_dir": "out",
     "tick_len": 4,
     "border_width": 1.0,
@@ -190,8 +190,8 @@ def render_display_settings():
             secondary_color = st.color_picker("Secondary color", value=current_cfg.get("secondary_color", "#ff7f0e"), key=f"{target_graph}_secondary")
             tertiary_color = st.color_picker("Tertiary color", value=current_cfg.get("tertiary_color", "#2ca02c"), key=f"{target_graph}_tertiary")
             line_width = st.slider("Main line width", 0.5, 4.0, float(current_cfg.get("line_width", 2.0)), 0.1, key=f"{target_graph}_lw")
-            aux_line_width = st.slider("Aux line width", 0.5, 3.0, float(current_cfg.get("aux_line_width", 1.4)), 0.1, key=f"{target_graph}_alw")
-            marker_size = st.slider("Marker size", 10, 150, int(current_cfg.get("marker_size", 46)), 1, key=f"{target_graph}_ms")
+            aux_line_width = st.slider("Aux line width", 0.5, 3.0, float(current_cfg.get("aux_line_width", 1.0)), 0.1, key=f"{target_graph}_alw")
+            marker_size = st.slider("Marker size", 10, 150, int(current_cfg.get("marker_size", 23)), 1, key=f"{target_graph}_ms")
             arrow_size = st.slider("Arrow size", 0.005, 0.20, float(current_cfg.get("arrow_size", 0.03)), 0.005, key=f"{target_graph}_arrow")
         with c2:
             fig_h = st.slider("Figure height", 3.0, 12.0, float(current_cfg.get("fig_h", 5.5)), 0.5, key=f"{target_graph}_fig_h")
