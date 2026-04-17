@@ -64,7 +64,12 @@ def inject_css():
     st.markdown(
         """
         <style>
-        .block-container {padding-top: 0.9rem; padding-bottom: 2rem;}
+        .block-container {padding-top: 3.6rem !important; padding-bottom: 2rem;}
+        [data-testid="stAppViewContainer"] .main .block-container {padding-top: 3.6rem !important;}
+        div[data-testid="stTabs"] {margin-top: 0.85rem;}
+        div[data-testid="stTabs"] > div:first-child {padding-top: 0.25rem;}
+        header[data-testid="stHeader"] {background: rgba(255,255,255,0.92);}
+        [data-testid="stToolbar"] {top: 0.2rem;}
         .app-header {
             border:1px solid #e2e8f0; border-radius:14px; padding:16px 20px;
             background: linear-gradient(90deg, #f8fafc 0%, #ffffff 100%);
