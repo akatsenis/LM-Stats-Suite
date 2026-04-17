@@ -43,8 +43,8 @@ PRIMARY_COLOR = "#1f77b4"
 SECONDARY_COLOR = "#ff7f0e"
 TERTIARY_COLOR = "#2ca02c"
 BAND_COLOR = "#93c5fd"
-GRID_ALPHA = 0.25
-MARKER_SIZE = 46
+GRID_ALPHA = 0.0
+MARKER_SIZE = 20
 FIT_LINE_COLOR = PRIMARY_COLOR
 FIT_LINE_STYLE = "-"
 LINE_WIDTH = 2.0
@@ -128,7 +128,7 @@ DEFAULT_STYLE_CFG = {
     "line_color": "#1f77b4",
     "border_color": "#111827",
     "font_color": "#111827",
-    "grid_alpha": 0.22,
+    "grid_alpha": 0.0,
     "line_style": "-",
     "aux_line_style": "--",
     "line_width": 1.8,
@@ -260,7 +260,7 @@ def render_display_settings():
             legend_opts = ["best", "upper right", "upper left", "lower right", "lower left", "center left", "center right", "lower center", "upper center"]
             legend_loc = st.selectbox("Legend location", legend_opts, index=legend_opts.index(current_cfg.get("legend_loc", "best")) if current_cfg.get("legend_loc", "best") in legend_opts else 0, key=f"{target_graph}_legend_loc")
         with a3:
-            grid_alpha = st.number_input("Grid transparency", min_value=0.0, max_value=1.0, value=float(current_cfg.get("grid_alpha", 0.22)), step=0.05, key=f"{target_graph}_ga")
+            grid_alpha = st.number_input("Grid transparency", min_value=0.0, max_value=1.0, value=float(current_cfg.get("grid_alpha", 0.00)), step=0.05, key=f"{target_graph}_ga")
             show_top = st.checkbox("Show top border", value=bool(current_cfg.get("show_top", True)), key=f"{target_graph}_top")
         with a4:
             arrow_size = st.number_input("Arrow size", min_value=0.001, max_value=0.3, value=float(current_cfg.get("arrow_size", 0.025)), step=0.005, key=f"{target_graph}_arrow")
