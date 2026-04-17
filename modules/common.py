@@ -64,9 +64,7 @@ def inject_css():
     st.markdown(
         """
         <style>
-        .block-container {padding-top: 1.8rem; padding-bottom: 2rem;}
-        div[data-baseweb="tab-list"] {margin-top: 0.5rem;}
-        div[role="tablist"] {margin-top: 0.35rem;}
+        .block-container {padding-top: 0.9rem; padding-bottom: 2rem;}
         .app-header {
             border:1px solid #e2e8f0; border-radius:14px; padding:16px 20px;
             background: linear-gradient(90deg, #f8fafc 0%, #ffffff 100%);
@@ -108,202 +106,460 @@ PLOT_STYLE_KEYS = [
 ]
 LINE_STYLE_MAP = {"Solid": "-", "Dash": "--", "Dot": ":", "Dash-dot": "-."}
 DEFAULT_STYLE_CFG = {
-    "fig_w": 6.8,
-    "fig_h": 4.3,
+    "fig_w": 8.5,
+    "fig_h": 5.5,
     "show_legend": True,
     "legend_loc": "best",
     "primary_color": "#1f77b4",
     "secondary_color": "#ff7f0e",
     "tertiary_color": "#2ca02c",
     "band_color": "#93c5fd",
-    "marker_color": "#1f77b4",
-    "line_color": "#1f77b4",
-    "border_color": "#111827",
-    "font_color": "#111827",
-    "grid_alpha": 0.22,
+    "grid_alpha": 0.25,
     "line_style": "-",
     "aux_line_style": "--",
-    "line_width": 1.8,
-    "aux_line_width": 1.2,
-    "marker_size": 32,
-    "marker_style": "o",
+    "line_width": 2.0,
+    "aux_line_width": 1.4,
+    "marker_size": 46,
     "tick_dir": "out",
     "tick_len": 4,
     "border_width": 1.0,
     "show_top": True,
     "show_right": True,
-    "axis_type": "standard",
-    "font_family": "DejaVu Sans",
-    "font_size": 10,
-    "title_size": 12,
-    "label_size": 10,
-    "tick_label_size": 9,
     "x_min": None,
     "x_max": None,
     "y_min": None,
     "y_max": None,
-    "arrow_size": 0.025,
+    "arrow_size": 0.03,
 }
 
 
+
+
 def _parse_style_float(val):
-    if val in [None, "", "None"]:
+    if val in (None, ""):
         return None
     try:
-        return float(str(val).strip())
+        return float(val)
     except Exception:
         return None
 
 
 def get_plot_cfg(plot_key="All graphs"):
-    cfg_map = st.session_state.get("plot_style_cfg", {})
-    base = DEFAULT_STYLE_CFG.copy()
-    base.update(cfg_map.get("All graphs", {}))
-    if plot_key != "All graphs":
-        base.update(cfg_map.get(plot_key, {}))
-    for k in ["x_min", "x_max", "y_min", "y_max", "fig_w", "fig_h", "line_width", "aux_line_width", "border_width", "grid_alpha", "arrow_size"]:
-        if k in base:
-            parsed = _parse_style_float(base.get(k))
-            if parsed is not None or k in ["x_min", "x_max", "y_min", "y_max"]:
-                base[k] = parsed
-    for k in ["marker_size", "tick_len", "font_size", "title_size", "label_size", "tick_label_size"]:
-        try:
-            base[k] = int(float(base.get(k, DEFAULT_STYLE_CFG[k])))
-        except Exception:
-            base[k] = DEFAULT_STYLE_CFG[k]
-    return base
-
-
-def safe_get_plot_cfg(plot_key="All graphs"):
-    try:
-        return get_plot_cfg(plot_key)
-    except Exception:
-        return DEFAULT_STYLE_CFG.copy()
-
-
+    cfg = DEFAULT_STYLE_CFG.copy()
+    style_cfg = st.session_state.get("plot_style_cfg", {})
+    all_cfg = style_cfg.get("All graphs", {}) if isinstance(style_cfg, dict) else {}
+    if isinstance(all_cfg, dict):
+        cfg.update({k: v for k, v in all_cfg.items() if v is not None and v != ""})
+    this_cfg = style_cfg.get(plot_key, {}) if isinstance(style_cfg, dict) else {}
+    if isinstance(this_cfg, dict):
+        cfg.update({k: v for k, v in this_cfg.items() if v is not None and v != ""})
+    for k in ("x_min", "x_max", "y_min", "y_max"):
+        cfg[k] = _parse_style_float(cfg.get(k))
+    return cfg
 def render_display_settings():
     global DEFAULT_DECIMALS, FIG_W, FIG_H, SHOW_LEGEND, LEGEND_LOC, PRIMARY_COLOR, SECONDARY_COLOR, TERTIARY_COLOR, BAND_COLOR, GRID_ALPHA, MARKER_SIZE, FIT_LINE_COLOR, FIT_LINE_STYLE, LINE_WIDTH, AREA_ALPHA, CI_LINE_STYLE, PI_LINE_STYLE, SPEC_LINE_STYLE, ARROW_SIZE
     if "plot_style_cfg" not in st.session_state:
         st.session_state["plot_style_cfg"] = {k: {} for k in PLOT_STYLE_KEYS}
         st.session_state["plot_style_cfg"]["All graphs"] = DEFAULT_STYLE_CFG.copy()
-
     with st.sidebar.expander("Display & export settings", expanded=False):
-        DEFAULT_DECIMALS = st.number_input("Default decimals", min_value=1, max_value=8, value=int(st.session_state.get("default_decimals", 3)), step=1, key="global_default_decimals")
-        st.session_state["default_decimals"] = DEFAULT_DECIMALS
-        target_graph = st.selectbox("Graph to customize", PLOT_STYLE_KEYS, index=0, key="target_graph_style")
-        current_cfg = safe_get_plot_cfg(target_graph)
-        st.caption("Direct click-to-style on a matplotlib figure is not reliable in Streamlit. Use the graph selector above to apply formatting to one graph at a time.")
-
-        st.markdown("**Sizes**")
-        s1, s2, s3 = st.columns(3)
-        with s1:
-            fig_w = st.number_input("Figure width", min_value=3.0, max_value=16.0, value=float(current_cfg.get("fig_w", 6.8)), step=0.2, key=f"{target_graph}_fig_w")
-            marker_size = st.number_input("Marker size", min_value=1, max_value=200, value=int(current_cfg.get("marker_size", 32)), step=1, key=f"{target_graph}_ms")
-            font_size = st.number_input("Font size", min_value=6, max_value=24, value=int(current_cfg.get("font_size", 10)), step=1, key=f"{target_graph}_font_size")
-        with s2:
-            fig_h = st.number_input("Figure height", min_value=2.5, max_value=12.0, value=float(current_cfg.get("fig_h", 4.3)), step=0.2, key=f"{target_graph}_fig_h")
-            line_width = st.number_input("Line width", min_value=0.2, max_value=6.0, value=float(current_cfg.get("line_width", 1.8)), step=0.1, key=f"{target_graph}_lw")
-            label_size = st.number_input("Axis label size", min_value=6, max_value=28, value=int(current_cfg.get("label_size", 10)), step=1, key=f"{target_graph}_label_size")
-        with s3:
-            aux_line_width = st.number_input("Aux line width", min_value=0.2, max_value=6.0, value=float(current_cfg.get("aux_line_width", 1.2)), step=0.1, key=f"{target_graph}_alw")
-            border_width = st.number_input("Border size", min_value=0.2, max_value=5.0, value=float(current_cfg.get("border_width", 1.0)), step=0.1, key=f"{target_graph}_bw")
-            title_size = st.number_input("Title size", min_value=6, max_value=30, value=int(current_cfg.get("title_size", 12)), step=1, key=f"{target_graph}_title_size")
-
-        st.markdown("**Types**")
-        t1, t2, t3, t4 = st.columns(4)
-        marker_options = ["o", "s", "^", "D", "v", "P", "X", "*", "+", "x"]
-        line_names = list(LINE_STYLE_MAP.keys())
-        axis_type_options = ["standard", "boxed", "left-bottom only"]
-        font_opts = ["DejaVu Sans", "Arial", "Helvetica", "Times New Roman", "Courier New"]
-        with t1:
-            marker_style = st.selectbox("Marker type", marker_options, index=marker_options.index(current_cfg.get("marker_style", "o")) if current_cfg.get("marker_style", "o") in marker_options else 0, key=f"{target_graph}_marker_style")
-        with t2:
-            line_style_name = st.selectbox("Line type", line_names, index=line_names.index(next((k for k,v in LINE_STYLE_MAP.items() if v == current_cfg.get("line_style", "-")), "Solid")), key=f"{target_graph}_line_style")
-        with t3:
-            axis_type = st.selectbox("Axis type", axis_type_options, index=axis_type_options.index(current_cfg.get("axis_type", "standard")) if current_cfg.get("axis_type", "standard") in axis_type_options else 0, key=f"{target_graph}_axis_type")
-        with t4:
-            font_family = st.selectbox("Font type", font_opts, index=font_opts.index(current_cfg.get("font_family", "DejaVu Sans")) if current_cfg.get("font_family", "DejaVu Sans") in font_opts else 0, key=f"{target_graph}_font_family")
-
-        st.markdown("**Colors**")
-        c1, c2, c3, c4 = st.columns(4)
+        DEFAULT_DECIMALS = st.slider("Default decimals", 1, 8, int(st.session_state.get('default_decimals', 3)), key='global_default_decimals')
+        st.session_state['default_decimals'] = DEFAULT_DECIMALS
+        target_graph = st.selectbox("Graph to customize", PLOT_STYLE_KEYS, index=0)
+        base_cfg = DEFAULT_STYLE_CFG.copy()
+        base_cfg.update(st.session_state["plot_style_cfg"].get("All graphs", {}))
+        current_cfg = base_cfg.copy()
+        if target_graph != "All graphs":
+            current_cfg.update(st.session_state["plot_style_cfg"].get(target_graph, {}))
+        c1, c2 = st.columns(2)
         with c1:
-            marker_color = st.color_picker("Marker color", value=current_cfg.get("marker_color", current_cfg.get("primary_color", "#1f77b4")), key=f"{target_graph}_marker_color")
-        with c2:
-            line_color = st.color_picker("Line color", value=current_cfg.get("line_color", current_cfg.get("primary_color", "#1f77b4")), key=f"{target_graph}_line_color")
-        with c3:
-            border_color = st.color_picker("Border color", value=current_cfg.get("border_color", "#111827"), key=f"{target_graph}_border_color")
-        with c4:
-            font_color = st.color_picker("Font color", value=current_cfg.get("font_color", "#111827"), key=f"{target_graph}_font_color")
-        c5, c6, c7 = st.columns(3)
-        with c5:
-            band_color = st.color_picker("Band / fill color", value=current_cfg.get("band_color", "#93c5fd"), key=f"{target_graph}_band_color")
-        with c6:
-            secondary_color = st.color_picker("Secondary color", value=current_cfg.get("secondary_color", "#ff7f0e"), key=f"{target_graph}_secondary_color")
-        with c7:
-            tertiary_color = st.color_picker("Tertiary color", value=current_cfg.get("tertiary_color", "#2ca02c"), key=f"{target_graph}_tertiary_color")
-
-        st.markdown("**Axes / legend**")
-        a1, a2, a3, a4 = st.columns(4)
-        with a1:
-            tick_dir = st.selectbox("Tick direction", ["out", "in", "inout"], index=["out", "in", "inout"].index(current_cfg.get("tick_dir", "out")), key=f"{target_graph}_tick_dir")
-            tick_len = st.number_input("Tick size", min_value=0, max_value=20, value=int(current_cfg.get("tick_len", 4)), step=1, key=f"{target_graph}_tick_len")
-        with a2:
+            fig_w = st.slider("Figure width", 5.0, 16.0, float(current_cfg.get("fig_w", 8.5)), 0.5, key=f"{target_graph}_fig_w")
             show_legend = st.checkbox("Show legend", value=bool(current_cfg.get("show_legend", True)), key=f"{target_graph}_show_legend")
+            primary_color = st.color_picker("Primary color", value=current_cfg.get("primary_color", "#1f77b4"), key=f"{target_graph}_primary")
+            secondary_color = st.color_picker("Secondary color", value=current_cfg.get("secondary_color", "#ff7f0e"), key=f"{target_graph}_secondary")
+            tertiary_color = st.color_picker("Tertiary color", value=current_cfg.get("tertiary_color", "#2ca02c"), key=f"{target_graph}_tertiary")
+            line_width = st.slider("Main line width", 0.5, 4.0, float(current_cfg.get("line_width", 2.0)), 0.1, key=f"{target_graph}_lw")
+            aux_line_width = st.slider("Aux line width", 0.5, 3.0, float(current_cfg.get("aux_line_width", 1.4)), 0.1, key=f"{target_graph}_alw")
+            marker_size = st.slider("Marker size", 10, 150, int(current_cfg.get("marker_size", 46)), 1, key=f"{target_graph}_ms")
+            arrow_size = st.slider("Arrow size", 0.005, 0.20, float(current_cfg.get("arrow_size", 0.03)), 0.005, key=f"{target_graph}_arrow")
+        with c2:
+            fig_h = st.slider("Figure height", 3.0, 12.0, float(current_cfg.get("fig_h", 5.5)), 0.5, key=f"{target_graph}_fig_h")
             legend_opts = ["best", "upper right", "upper left", "lower right", "lower left", "center left", "center right", "lower center", "upper center"]
-            legend_loc = st.selectbox("Legend location", legend_opts, index=legend_opts.index(current_cfg.get("legend_loc", "best")) if current_cfg.get("legend_loc", "best") in legend_opts else 0, key=f"{target_graph}_legend_loc")
-        with a3:
-            grid_alpha = st.number_input("Grid transparency", min_value=0.0, max_value=1.0, value=float(current_cfg.get("grid_alpha", 0.22)), step=0.05, key=f"{target_graph}_ga")
+            legend_loc = st.selectbox("Legend location", legend_opts, index=legend_opts.index(current_cfg.get("legend_loc", "best")), key=f"{target_graph}_legend_loc")
+            band_color = st.color_picker("Band / area color", value=current_cfg.get("band_color", "#93c5fd"), key=f"{target_graph}_band")
+            grid_alpha = st.slider("Grid transparency", 0.0, 1.0, float(current_cfg.get("grid_alpha", 0.25)), 0.05, key=f"{target_graph}_ga")
+            line_style_name = st.selectbox("Main line style", list(LINE_STYLE_MAP.keys()), index=list(LINE_STYLE_MAP.values()).index(current_cfg.get("line_style", "-")) if current_cfg.get("line_style", "-") in LINE_STYLE_MAP.values() else 0, key=f"{target_graph}_ls")
+            aux_line_style_name = st.selectbox("Aux line style", list(LINE_STYLE_MAP.keys()), index=list(LINE_STYLE_MAP.values()).index(current_cfg.get("aux_line_style", "--")) if current_cfg.get("aux_line_style", "--") in LINE_STYLE_MAP.values() else 1, key=f"{target_graph}_als")
+            tick_dir = st.selectbox("Tick direction", ["out", "in", "inout"], index=["out", "in", "inout"].index(current_cfg.get("tick_dir", "out")), key=f"{target_graph}_tick_dir")
+            tick_len = st.slider("Tick length", 0, 12, int(current_cfg.get("tick_len", 4)), 1, key=f"{target_graph}_tick_len")
+            border_width = st.slider("Border width", 0.5, 3.0, float(current_cfg.get("border_width", 1.0)), 0.1, key=f"{target_graph}_bw")
             show_top = st.checkbox("Show top border", value=bool(current_cfg.get("show_top", True)), key=f"{target_graph}_top")
-        with a4:
-            arrow_size = st.number_input("Arrow size", min_value=0.001, max_value=0.3, value=float(current_cfg.get("arrow_size", 0.025)), step=0.005, key=f"{target_graph}_arrow")
             show_right = st.checkbox("Show right border", value=bool(current_cfg.get("show_right", True)), key=f"{target_graph}_right")
-
         st.markdown("**Axis limits (leave blank for automatic)**")
         x1, x2, y1, y2 = st.columns(4)
-        x_min_cfg = x1.text_input("X min", value="" if current_cfg.get("x_min") in [None, ""] else str(current_cfg.get("x_min")), key=f"{target_graph}_xmin")
-        x_max_cfg = x2.text_input("X max", value="" if current_cfg.get("x_max") in [None, ""] else str(current_cfg.get("x_max")), key=f"{target_graph}_xmax")
-        y_min_cfg = y1.text_input("Y min", value="" if current_cfg.get("y_min") in [None, ""] else str(current_cfg.get("y_min")), key=f"{target_graph}_ymin")
-        y_max_cfg = y2.text_input("Y max", value="" if current_cfg.get("y_max") in [None, ""] else str(current_cfg.get("y_max")), key=f"{target_graph}_ymax")
-
+        x_min_cfg = x1.text_input("X min", value="" if current_cfg.get("x_min", None) in [None, ""] else str(current_cfg.get("x_min")), key=f"{target_graph}_xmin")
+        x_max_cfg = x2.text_input("X max", value="" if current_cfg.get("x_max", None) in [None, ""] else str(current_cfg.get("x_max")), key=f"{target_graph}_xmax")
+        y_min_cfg = y1.text_input("Y min", value="" if current_cfg.get("y_min", None) in [None, ""] else str(current_cfg.get("y_min")), key=f"{target_graph}_ymin")
+        y_max_cfg = y2.text_input("Y max", value="" if current_cfg.get("y_max", None) in [None, ""] else str(current_cfg.get("y_max")), key=f"{target_graph}_ymax")
         st.session_state["plot_style_cfg"][target_graph] = {
-            "fig_w": fig_w, "fig_h": fig_h,
-            "show_legend": show_legend, "legend_loc": legend_loc,
-            "primary_color": line_color, "secondary_color": secondary_color, "tertiary_color": tertiary_color,
-            "marker_color": marker_color, "line_color": line_color, "band_color": band_color,
-            "border_color": border_color, "font_color": font_color,
-            "grid_alpha": grid_alpha,
-            "line_style": LINE_STYLE_MAP[line_style_name], "aux_line_style": current_cfg.get("aux_line_style", "--"),
-            "line_width": line_width, "aux_line_width": aux_line_width,
-            "marker_size": marker_size, "marker_style": marker_style,
-            "tick_dir": tick_dir, "tick_len": tick_len, "border_width": border_width,
-            "show_top": show_top, "show_right": show_right, "axis_type": axis_type,
-            "font_family": font_family, "font_size": font_size, "title_size": title_size, "label_size": label_size,
-            "tick_label_size": max(6, font_size - 1),
-            "x_min": x_min_cfg.strip(), "x_max": x_max_cfg.strip(), "y_min": y_min_cfg.strip(), "y_max": y_max_cfg.strip(),
+            "fig_w": fig_w, "fig_h": fig_h, "show_legend": show_legend, "legend_loc": legend_loc,
+            "primary_color": primary_color, "secondary_color": secondary_color, "tertiary_color": tertiary_color,
+            "band_color": band_color, "grid_alpha": grid_alpha, "line_style": LINE_STYLE_MAP[line_style_name],
+            "aux_line_style": LINE_STYLE_MAP[aux_line_style_name], "line_width": line_width,
+            "aux_line_width": aux_line_width, "marker_size": marker_size, "tick_dir": tick_dir,
+            "tick_len": tick_len, "border_width": border_width, "show_top": show_top, "show_right": show_right,
+            "x_min": x_min_cfg.strip() if isinstance(x_min_cfg, str) else x_min_cfg,
+            "x_max": x_max_cfg.strip() if isinstance(x_max_cfg, str) else x_max_cfg,
+            "y_min": y_min_cfg.strip() if isinstance(y_min_cfg, str) else y_min_cfg,
+            "y_max": y_max_cfg.strip() if isinstance(y_max_cfg, str) else y_max_cfg,
             "arrow_size": arrow_size,
         }
-        r1, r2 = st.columns(2)
-        with r1:
-            if st.button("Reset selected graph style", key=f"reset_style_{target_graph}"):
-                st.session_state["plot_style_cfg"][target_graph] = {} if target_graph != "All graphs" else DEFAULT_STYLE_CFG.copy()
-                st.rerun()
-        with r2:
-            if st.button("Reset all graph styles", key="reset_all_graph_styles"):
-                st.session_state["plot_style_cfg"] = {k: {} for k in PLOT_STYLE_KEYS}
-                st.session_state["plot_style_cfg"]["All graphs"] = DEFAULT_STYLE_CFG.copy()
-                st.rerun()
-
-    _all_cfg = safe_get_plot_cfg("All graphs")
+        if st.button("Reset selected graph style", key=f"reset_style_{target_graph}"):
+            st.session_state["plot_style_cfg"][target_graph] = {} if target_graph != "All graphs" else DEFAULT_STYLE_CFG.copy()
+            st.rerun()
+    _all_cfg = get_plot_cfg("All graphs")
     FIG_W = _all_cfg["fig_w"]; FIG_H = _all_cfg["fig_h"]; SHOW_LEGEND = _all_cfg["show_legend"]; LEGEND_LOC = _all_cfg["legend_loc"]
-    PRIMARY_COLOR = _all_cfg["line_color"]; SECONDARY_COLOR = _all_cfg["secondary_color"]; TERTIARY_COLOR = _all_cfg["tertiary_color"]
+    PRIMARY_COLOR = _all_cfg["primary_color"]; SECONDARY_COLOR = _all_cfg["secondary_color"]; TERTIARY_COLOR = _all_cfg["tertiary_color"]
     BAND_COLOR = _all_cfg["band_color"]; GRID_ALPHA = _all_cfg["grid_alpha"]; MARKER_SIZE = _all_cfg["marker_size"]
-    FIT_LINE_COLOR = _all_cfg["line_color"]; FIT_LINE_STYLE = _all_cfg["line_style"]; LINE_WIDTH = _all_cfg["line_width"]; AREA_ALPHA = 0.16
-    CI_LINE_STYLE = _all_cfg["aux_line_style"]; PI_LINE_STYLE = _all_cfg["aux_line_style"]; SPEC_LINE_STYLE = _all_cfg["aux_line_style"]; ARROW_SIZE = _all_cfg["arrow_size"]
+    FIT_LINE_COLOR = _all_cfg["primary_color"]; FIT_LINE_STYLE = _all_cfg["line_style"]; LINE_WIDTH = _all_cfg["line_width"]
+    AREA_ALPHA = 0.18; CI_LINE_STYLE = _all_cfg["aux_line_style"]; PI_LINE_STYLE = _all_cfg["aux_line_style"]; SPEC_LINE_STYLE = _all_cfg["aux_line_style"]
+    ARROW_SIZE = _all_cfg["arrow_size"]
+    st.sidebar.divider()
+    st.sidebar.info("Paste data from Excel. Tables, charts, Excel exports, and PDF-style reports are built into the app. Exported figures keep the current display settings.")
+
+# -------------------------------------------------
+# UI helpers
+# -------------------------------------------------
+def app_header(title, subtitle=""):
+    st.markdown(
+        f"""
+        <div class='app-header'>
+            <div class='app-title'>{title}</div>
+            <div class='app-sub'>{subtitle}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def info_box(text):
+    st.markdown(f"<div class='report-caption'>{text}</div>", unsafe_allow_html=True)
+
+
+# -------------------------------------------------
+# Data helpers
+# -------------------------------------------------
+def to_numeric(series):
+    return pd.to_numeric(series.astype(str).str.strip().str.replace("%", "", regex=False), errors="coerce")
+
+
+def parse_pasted_table(text, header=True):
+    text = str(text).strip()
+    if not text:
+        return None
+    parsers = [
+        lambda s: pd.read_csv(StringIO(s), sep="\t", engine="python", header=0 if header else None),
+        lambda s: pd.read_csv(StringIO(s), sep=",", engine="python", header=0 if header else None),
+        lambda s: pd.read_csv(StringIO(s), sep=";", engine="python", header=0 if header else None),
+        lambda s: pd.read_csv(StringIO(s), sep=r"\s+", engine="python", header=0 if header else None),
+    ]
+    for parser in parsers:
+        try:
+            df = parser(text)
+            if df is not None and df.shape[1] >= 1:
+                if header:
+                    df.columns = [str(c).strip() for c in df.columns]
+                return df.dropna(how="all").reset_index(drop=True)
+        except Exception:
+            continue
+    return None
+
+
+def parse_xy(text):
+    """Return dataframe with x,y and axis labels; accepts with or without headers."""
+    raw = parse_pasted_table(text, header=False)
+    if raw is None or raw.shape[1] < 2:
+        raise ValueError("Paste at least two columns from Excel.")
+    raw = raw.iloc[:, :2].copy()
+    x_label, y_label = "X", "Y"
+    first_row = raw.iloc[0].astype(str)
+    first_row_numeric = pd.to_numeric(first_row.str.replace("%", "", regex=False), errors="coerce")
+    if first_row_numeric.isna().any():
+        x_label = str(raw.iloc[0, 0]).strip() or "X"
+        y_label = str(raw.iloc[0, 1]).strip() or "Y"
+        raw = raw.iloc[1:].reset_index(drop=True)
+    raw.columns = ["x", "y"]
+    raw["x"] = to_numeric(raw["x"])
+    raw["y"] = to_numeric(raw["y"])
+    raw = raw.dropna().sort_values("x").reset_index(drop=True)
+    if len(raw) < 3 or raw["x"].nunique() < 2:
+        raise ValueError("At least 3 valid rows and 2 unique X values are required.")
+    return raw, x_label, y_label
+
+
+def parse_x_values(text):
+    text = str(text).strip()
+    if not text:
+        return np.array([])
+    vals = []
+    for part in re.split(r"[\s,;\t]+", text):
+        if part:
+            vals.append(float(part))
+    return np.array(vals, dtype=float)
+
+
+def parse_optional_float(txt):
+    txt = str(txt).strip()
+    if txt == "":
+        return None
+    return float(txt)
+
+
+def parse_one_col(text):
+    df = parse_pasted_table(text, header=False)
+    if df is None:
+        return np.array([])
+    return to_numeric(df.iloc[:, 0]).dropna().to_numpy()
+
+
+def get_numeric_columns(df, min_nonempty=2, required_numeric_ratio=0.95):
+    out = []
+    for col in df.columns:
+        raw = df[col]
+        raw_str = raw.astype(str).str.strip()
+        nonempty_mask = raw.notna() & raw_str.ne("") & raw_str.str.lower().ne("nan")
+        if nonempty_mask.sum() < min_nonempty:
+            continue
+        converted = pd.to_numeric(raw_str.str.replace("%", "", regex=False), errors="coerce")
+        numeric_ratio_among_nonempty = converted[nonempty_mask].notna().mean()
+        if numeric_ratio_among_nonempty >= required_numeric_ratio:
+            out.append(col)
+    return out
+
+
+def fmt_p(p):
+    if pd.isna(p):
+        return "-"
+    return "<0.001" if p < 0.001 else f"{p:.3f}"
+
+# -------------------------------------------------
+# Compatibility helpers for refined modules
+# -------------------------------------------------
+def fit_linear(x, y):
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    n = len(x)
+    X = np.column_stack([np.ones(n), x])
+    XtX_inv = np.linalg.inv(X.T @ X)
+    beta = XtX_inv @ X.T @ y
+    intercept, slope = beta
+    fitted = X @ beta
+    resid = y - fitted
+    df = n - 2
+    s = np.sqrt(np.sum(resid**2) / df)
+    ss_tot = np.sum((y - y.mean()) ** 2)
+    ss_res = np.sum(resid**2)
+    r2 = 1 - ss_res / ss_tot if ss_tot > 0 else np.nan
+    return {"intercept": intercept, "slope": slope, "XtX_inv": XtX_inv, "fitted": fitted, "resid": resid, "df": df, "s": s, "r2": r2}
+
+
+def reg_parse_prediction_points(text):
+    return parse_x_values(text)
+
+
+def reg_fit_linear_model(x, y):
+    model = fit_linear(x, y)
+    model["x"] = np.asarray(x, dtype=float).ravel()
+    model["y"] = np.asarray(y, dtype=float).ravel()
+    model["y_fit"] = model["fitted"]
+    return model
+
+
+def reg_predict_with_intervals(model, x_values, confidence=0.95, side="upper"):
+    x_values = np.asarray(x_values, dtype=float).ravel()
+    Xg = np.column_stack([np.ones(len(x_values)), x_values])
+    beta = np.array([model["intercept"], model["slope"]])
+    yhat = Xg @ beta
+    h = np.einsum("ij,jk,ik->i", Xg, model["XtX_inv"], Xg)
+    se_mean = model["s"] * np.sqrt(h)
+    se_pred = model["s"] * np.sqrt(1 + h)
+    alpha = 1 - confidence
+    if side == "two-sided":
+        tcrit = t.ppf(1 - alpha / 2, model["df"])
+    else:
+        tcrit = t.ppf(confidence, model["df"])
+    ci_lower = yhat - tcrit * se_mean
+    ci_upper = yhat + tcrit * se_mean
+    pi_lower = yhat - tcrit * se_pred
+    pi_upper = yhat + tcrit * se_pred
+    return pd.DataFrame({
+        "x": x_values,
+        "fit": yhat,
+        "ci_lower": ci_lower,
+        "ci_upper": ci_upper,
+        "pi_lower": pi_lower,
+        "pi_upper": pi_upper,
+    })
+
+
+def reg_find_crossing(xv, yv, limit):
+    d = yv - limit
+    idx = np.where(d[:-1] * d[1:] <= 0)[0]
+    if len(idx) == 0:
+        return None
+    i = idx[0]
+    x1, x2 = xv[i], xv[i + 1]
+    y1, y2 = yv[i], yv[i + 1]
+    if y2 == y1:
+        return x1
+    return x1 + (limit - y1) * (x2 - x1) / (y2 - y1)
+
+
+def plot_regression_advanced(
+    data_df,
+    model,
+    grid_df,
+    confidence=0.95,
+    interval="pi",
+    side="upper",
+    title="",
+    xlabel="Time",
+    ylabel="Response",
+    point_label="Data",
+    y_suffix="%",
+    spec_enabled=False,
+    spec_limit=None,
+    spec_label="US",
+    crossing_on="auto",
+):
+    cfg = get_plot_cfg("Regression intervals")
+    x = data_df["x"].to_numpy()
+    y = data_df["y"].to_numpy()
+    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+    main_color = cfg["primary_color"]
+    pi_color = cfg["secondary_color"]
+    ci_color = cfg["band_color"]
+    lw = cfg["line_width"]
+    ls = cfg["line_style"]
+    aux_ls = cfg["aux_line_style"]
+    ms = cfg["marker_size"]
+    area_alpha = 0.18
+    ax.scatter(x, y, color=main_color, s=ms, alpha=0.85, label=point_label, zorder=3)
+    ax.plot(grid_df["x"], grid_df["fit"], color=main_color, lw=lw, ls=ls, label="Fitted Line")
+
+    if interval in ["ci", "both"]:
+        if side == "two-sided":
+            ax.fill_between(grid_df["x"], grid_df["ci_lower"], grid_df["ci_upper"], color=ci_color, alpha=area_alpha, label="Confidence Interval (CI)")
+            ax.plot(grid_df["x"], grid_df["ci_upper"], color=ci_color, ls=aux_ls, lw=cfg["aux_line_width"])
+            ax.plot(grid_df["x"], grid_df["ci_lower"], color=ci_color, ls=aux_ls, lw=cfg["aux_line_width"])
+        elif side == "upper":
+            ax.fill_between(grid_df["x"], grid_df["fit"], grid_df["ci_upper"], color=ci_color, alpha=area_alpha, label="Upper CI")
+            ax.plot(grid_df["x"], grid_df["ci_upper"], color=ci_color, ls=aux_ls, lw=cfg["aux_line_width"], label="_nolegend_")
+        else:
+            ax.fill_between(grid_df["x"], grid_df["ci_lower"], grid_df["fit"], color=ci_color, alpha=area_alpha, label="Lower CI")
+            ax.plot(grid_df["x"], grid_df["ci_lower"], color=ci_color, ls=aux_ls, lw=cfg["aux_line_width"], label="_nolegend_")
+
+    if interval in ["pi", "both"]:
+        pa = max(area_alpha - 0.05, 0.05)
+        if side == "two-sided":
+            ax.fill_between(grid_df["x"], grid_df["pi_lower"], grid_df["pi_upper"], color=pi_color, alpha=pa, label="Prediction Interval (PI)")
+            ax.plot(grid_df["x"], grid_df["pi_upper"], color=pi_color, ls=aux_ls, lw=cfg["aux_line_width"])
+            ax.plot(grid_df["x"], grid_df["pi_lower"], color=pi_color, ls=aux_ls, lw=cfg["aux_line_width"])
+        elif side == "upper":
+            ax.fill_between(grid_df["x"], grid_df["fit"], grid_df["pi_upper"], color=pi_color, alpha=pa, label="Upper PI")
+            ax.plot(grid_df["x"], grid_df["pi_upper"], color=pi_color, ls=aux_ls, lw=cfg["aux_line_width"], label="_nolegend_")
+        else:
+            ax.fill_between(grid_df["x"], grid_df["pi_lower"], grid_df["fit"], color=pi_color, alpha=pa, label="Lower PI")
+            ax.plot(grid_df["x"], grid_df["pi_lower"], color=pi_color, ls=aux_ls, lw=cfg["aux_line_width"], label="_nolegend_")
+
+    crossing_x = None
+    if spec_enabled and spec_limit is not None:
+        ax.axhline(spec_limit, color=cfg["tertiary_color"], ls=aux_ls, lw=lw, label=f"Limit ({spec_label})")
+        curve_map = {
+            "fit": grid_df["fit"].to_numpy(),
+            "ci_upper": grid_df["ci_upper"].to_numpy(),
+            "ci_lower": grid_df["ci_lower"].to_numpy(),
+            "pi_upper": grid_df["pi_upper"].to_numpy(),
+            "pi_lower": grid_df["pi_lower"].to_numpy(),
+        }
+        if crossing_on == "auto":
+            if interval in ["both", "pi"]:
+                crossing_on = "pi_upper" if side == "upper" else "pi_lower" if side == "lower" else "pi_upper"
+            else:
+                crossing_on = "ci_upper" if side == "upper" else "ci_lower" if side == "lower" else "ci_upper"
+        if crossing_on in curve_map:
+            crossing_x = reg_find_crossing(grid_df["x"].to_numpy(), curve_map[crossing_on], spec_limit)
+            if crossing_x is not None:
+                ax.axvline(crossing_x, color=cfg["tertiary_color"], ls=aux_ls, lw=cfg["aux_line_width"])
+        xmin = float(grid_df["x"].min())
+        xmax = float(grid_df["x"].max())
+        ymax_data = max(float(grid_df["fit"].max()), float(grid_df["ci_upper"].max()), float(grid_df["pi_upper"].max()), float(y.max()))
+        ymin_data = min(float(grid_df["fit"].min()), float(grid_df["ci_lower"].min()), float(grid_df["pi_lower"].min()), float(y.min()))
+        pad = 0.02 * (ymax_data - ymin_data if ymax_data > ymin_data else 1)
+        suffix = y_suffix or ""
+        ax.text(xmin + (xmax - xmin) * 0.02, spec_limit + pad, f"{spec_label} = {spec_limit:.1f}{suffix}",
+                ha="left", va="bottom", fontsize=11, color=cfg["tertiary_color"], weight="bold",
+                bbox=dict(facecolor="white", alpha=0.8, edgecolor="none", pad=2))
+        if crossing_x is not None:
+            ax.text(crossing_x, ymin_data + pad, f" {crossing_x:.2f}",
+                    color=cfg["tertiary_color"], ha="left", va="bottom", fontsize=11, weight="bold",
+                    bbox=dict(facecolor="white", alpha=0.8, edgecolor="none", pad=2))
+
+    if y_suffix:
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, pos: f"{v:.1f}{y_suffix}"))
+
+    if not title.strip():
+        s1 = {"upper": "Upper One-Sided", "lower": "Lower One-Sided", "two-sided": "Two-Sided"}[side]
+        s2 = {"ci": "Confidence Intervals", "pi": "Prediction Intervals", "both": "Confidence and Prediction Intervals"}[interval]
+        title = f"{s1} {s2} ({confidence:.0%})"
+
+    apply_ax_style(ax, title, xlabel, ylabel, legend=True, plot_key="Regression intervals")
+    return fig, crossing_x
+
+
+# -------------------------------------------------
+# Table display and download helpers
+# -------------------------------------------------
+def report_table(df, caption="", decimals=None):
+    decimals = DEFAULT_DECIMALS if decimals is None else decimals
+    styled = (
+        df.style
+        .hide(axis="index")
+        .set_caption(caption)
+        .set_table_styles([
+            {"selector": "caption", "props": [("text-align", "left"), ("font-size", "1rem"), ("font-weight", "700"), ("margin-bottom", "0.55rem")]},
+            {"selector": "thead th", "props": [("border-top", "2px solid #111827"), ("border-bottom", "1px solid #111827"), ("padding", "8px 12px"), ("text-align", "center"), ("background-color", "#f8fafc")]},
+            {"selector": "tbody td", "props": [("padding", "8px 12px"), ("text-align", "center")]},
+            {"selector": "tbody tr:last-child td", "props": [("border-bottom", "2px solid #111827")]},
+        ])
+        .format(precision=decimals, na_rep="-")
+    )
+    st.markdown(f"<div class='report-table'>{styled.to_html()}</div>", unsafe_allow_html=True)
+
+
+def make_excel_bytes(sheet_map):
+    bio = BytesIO()
+    with pd.ExcelWriter(bio, engine="openpyxl") as writer:
+        for sheet_name, df in sheet_map.items():
+            safe = re.sub(r"[^A-Za-z0-9 _-]", "", sheet_name)[:31] or "Sheet1"
+            out = df.copy()
+            out.to_excel(writer, sheet_name=safe, index=False)
+            ws = writer.sheets[safe]
+            for col_cells in ws.columns:
+                max_len = 0
+                col_letter = col_cells[0].column_letter
+                for cell in col_cells:
+                    try:
+                        max_len = max(max_len, len(str(cell.value)))
+                    except Exception:
+                        pass
+                ws.column_dimensions[col_letter].width = min(max_len + 2, 28)
+    bio.seek(0)
+    return bio.getvalue()
 
 
 def fig_to_png_bytes(fig):
     bio = BytesIO()
-    fig.savefig(bio, format="png", dpi=320, bbox_inches="tight", facecolor="white")
+    fig.savefig(bio, format="png", dpi=220, bbox_inches="tight", facecolor="white")
     bio.seek(0)
     return bio.getvalue()
 
@@ -425,27 +681,18 @@ def export_results(prefix, report_title, module_name, statistical_analysis, offe
 # -------------------------------------------------
 
 def apply_ax_style(ax, title, xlabel, ylabel, legend=None, plot_key="All graphs"):
-    cfg = safe_get_plot_cfg(plot_key)
-    ax.set_title(title, fontsize=cfg["title_size"], color=cfg["font_color"], fontfamily=cfg["font_family"])
-    ax.set_xlabel(xlabel, fontsize=cfg["label_size"], color=cfg["font_color"], fontfamily=cfg["font_family"])
-    ax.set_ylabel(ylabel, fontsize=cfg["label_size"], color=cfg["font_color"], fontfamily=cfg["font_family"])
+    cfg = get_plot_cfg(plot_key)
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
     ax.grid(True, alpha=cfg["grid_alpha"])
-    ax.tick_params(direction=cfg["tick_dir"], length=cfg["tick_len"], width=cfg["border_width"], colors=cfg["font_color"], labelsize=cfg["tick_label_size"])
-    for lab in ax.get_xticklabels() + ax.get_yticklabels():
-        lab.set_fontfamily(cfg["font_family"])
-        lab.set_color(cfg["font_color"])
-    for spine_name, spine in ax.spines.items():
-        spine.set_linewidth(cfg["border_width"])
-        spine.set_color(cfg["border_color"])
-    if cfg.get("axis_type") == "left-bottom only":
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-    elif cfg.get("axis_type") == "boxed":
-        ax.spines["top"].set_visible(True)
-        ax.spines["right"].set_visible(True)
-    else:
-        ax.spines["top"].set_visible(cfg.get("show_top", True))
-        ax.spines["right"].set_visible(cfg.get("show_right", True))
+    ax.tick_params(direction=cfg["tick_dir"], length=cfg["tick_len"], width=cfg["border_width"])
+    ax.spines["left"].set_linewidth(cfg["border_width"])
+    ax.spines["bottom"].set_linewidth(cfg["border_width"])
+    ax.spines["top"].set_linewidth(cfg["border_width"])
+    ax.spines["right"].set_linewidth(cfg["border_width"])
+    ax.spines["top"].set_visible(cfg["show_top"])
+    ax.spines["right"].set_visible(cfg["show_right"])
     if cfg["x_min"] is not None or cfg["x_max"] is not None:
         ax.set_xlim(left=cfg["x_min"], right=cfg["x_max"])
     if cfg["y_min"] is not None or cfg["y_max"] is not None:
@@ -453,17 +700,13 @@ def apply_ax_style(ax, title, xlabel, ylabel, legend=None, plot_key="All graphs"
     if legend is None:
         legend = cfg["show_legend"]
     if cfg["show_legend"] and legend:
-        handles, labels = ax.get_legend_handles_labels()
-        if handles:
-            ax.legend(frameon=False, loc=cfg["legend_loc"], prop={"family": cfg["font_family"], "size": max(8, cfg["font_size"] - 1)})
-    fig = ax.figure
-    fig.tight_layout(pad=1.0)
+        ax.legend(frameon=False, loc=cfg["legend_loc"])
 
 
 def residual_plot(fitted, residuals, xlabel="Fitted", ylabel="Residuals", title="Residuals vs fitted"):
     cfg = get_plot_cfg("Residual plot")
     fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
-    ax.scatter(fitted, residuals, color=cfg.get("marker_color", cfg["primary_color"]), s=cfg["marker_size"], marker=cfg.get("marker_style", "o"))
+    ax.scatter(fitted, residuals, color=cfg["primary_color"], s=cfg["marker_size"])
     ax.axhline(0, color="#111827", ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
     apply_ax_style(ax, title, xlabel, ylabel, plot_key="Residual plot")
     return fig
@@ -474,7 +717,7 @@ def qq_plot(residuals, title="Normal probability plot of residuals"):
     fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
     stats.probplot(residuals, dist="norm", plot=ax)
     if len(ax.lines) >= 2:
-        ax.lines[0].set_marker(cfg.get("marker_style", "o"))
+        ax.lines[0].set_marker("o")
         ax.lines[0].set_linestyle("None")
         ax.lines[0].set_color(cfg["primary_color"])
         ax.lines[0].set_markersize(max(3, cfg["marker_size"] / 12))
@@ -529,11 +772,20 @@ def draw_conf_ellipse(scores, ax, edgecolor=PRIMARY_COLOR, facecolor=None, plot_
     theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
     q = stats.chi2.ppf(0.95, 2)
     width, height = 2 * np.sqrt(vals * q)
-    cfg = safe_get_plot_cfg(plot_key)
+    cfg = get_plot_cfg(plot_key)
+    lw = max(0.8, cfg["aux_line_width"] * 0.9)
+    ls = cfg["aux_line_style"]
     fc = facecolor if facecolor is not None else edgecolor
     ell = Ellipse(
-        xy=np.mean(scores, axis=0), width=width, height=height, angle=theta,
-        edgecolor=edgecolor, facecolor=fc, alpha=0.12, lw=max(0.7, cfg["aux_line_width"]), ls=cfg["aux_line_style"]
+        xy=np.mean(scores, axis=0),
+        width=width,
+        height=height,
+        angle=theta,
+        edgecolor=edgecolor,
+        facecolor=fc,
+        alpha=0.12,
+        lw=lw,
+        ls=ls,
     )
     ax.add_patch(ell)
 
@@ -848,24 +1100,6 @@ def dis_plot_bootstrap_f2_distribution(boot_vals, observed_f2, ci_low=None, ci_h
 
 
 # -------------------------------------------------
-
-
-
-def app_header(title, subtitle=""):
-    st.markdown(
-        f"""
-        <div class='app-header'>
-            <div class='app-title'>{title}</div>
-            <div class='app-sub'>{subtitle}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def info_box(text):
-    st.markdown(f"<div class='report-caption'>{text}</div>", unsafe_allow_html=True)
-
 
 
 __all__ = [name for name in globals() if not name.startswith("_")]
