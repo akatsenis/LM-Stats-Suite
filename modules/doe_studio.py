@@ -72,9 +72,9 @@ def render():
             st.download_button("Download design workbook", excel_bytes, file_name="doe_design.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             st.download_button("Download design CSV", design.to_csv(index=False).encode("utf-8"), file_name="doe_design.csv", mime="text/csv")
         with tabs[1]:
-        st.subheader("Response Analysis")
-        info_box("Paste completed DoE data with factor columns and one or more response columns to fit models and generate plots.")
-data_input = st.text_area("Paste completed DoE data with headers", height=240)
+            st.subheader("Response Analysis")
+            info_box("Paste completed DoE data with factor columns and one or more response columns to fit models and generate plots.")
+            data_input = st.text_area("Paste completed DoE data with headers", height=240)
                 decimals = st.slider("Decimals", 1, 8, DEFAULT_DECIMALS, key="doe_dec")
                 if data_input:
                     try:
