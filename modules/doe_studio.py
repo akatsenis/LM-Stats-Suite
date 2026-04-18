@@ -1,5 +1,6 @@
 import modules.common as common
 from modules.common import *
+from itertools import product
 
 st = common.st
 pd = common.pd
