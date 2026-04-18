@@ -617,7 +617,7 @@ def render():
                 data_df, x_label_detected, y_label_detected = parse_xy(xy_input)
     
                 st.markdown("### Options")
-               ([1, 1, 1.2])
+                ([1, 1, 1.2])
                 with c1:
                     interval_mode = st.selectbox("Interval", ["ci", "pi", "both"], format_func=lambda x: {"ci":"CI", "pi":"PI", "both":"Both"}[x])
                 with c2:
