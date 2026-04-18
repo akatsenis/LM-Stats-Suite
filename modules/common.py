@@ -47,7 +47,8 @@ PLOT_STYLE_KEYS = [
     "Dissolution bootstrap distribution", "Two-sample box plot", "Two-sample density plot",
     "Two-way ANOVA interaction", "Two-way ANOVA residual plot", "Two-way ANOVA Q-Q plot",
     "Tolerance/CI box plot", "PCA score plot", "PCA loading plot", "DoE contour",
-    "DoE surface", "DoE residual plot", "DoE Q-Q plot", "Residual plot", "Q-Q plot",
+    "DoE surface", "DoE residual plot", "DoE Q-Q plot", "DoE interaction", "DoE residual diagnostics",
+    "DoE predicted vs observed", "DoE overlay contour", "Residual plot", "Q-Q plot",
 ]
 LINE_STYLE_MAP = {"Solid": "-", "Dash": "--", "Dot": ":", "Dash-dot": "-."}
 DEFAULT_STYLE_CFG = {
@@ -1009,31 +1010,5 @@ def dis_plot_bootstrap_f2_distribution(boot_vals, observed_f2, ci_low=None, ci_h
     if ci_high is not None: ax.axvline(ci_high, color=cfg["tertiary_color"], linestyle=cfg["aux_line_style"], linewidth=cfg["line_width"])
     apply_ax_style(ax, title, "f2 values", "Density", legend=False, plot_key="Dissolution comparison"); ax.set_xlim(x_min, x_max)
     return fig
-
-def residual_plot_for(plot_key, fitted, residuals, xlabel="Fitted", ylabel="Residuals", title="Residuals vs fitted"):
-    cfg = safe_get_plot_cfg(plot_key)
-    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
-    ax.scatter(fitted, residuals, color=cfg.get("marker_color", cfg["primary_color"]),
-               s=cfg["marker_size"], marker=cfg.get("marker_style", "o"))
-    ax.axhline(0, color="#111827", ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
-    apply_ax_style(ax, title, xlabel, ylabel, plot_key=plot_key)
-    return fig
-
-
-def qq_plot_for(plot_key, residuals, title="Normal probability plot of residuals"):
-    cfg = safe_get_plot_cfg(plot_key)
-    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
-    stats.probplot(residuals, dist="norm", plot=ax)
-    if len(ax.lines) >= 2:
-        ax.lines[0].set_marker(cfg.get("marker_style", "o"))
-        ax.lines[0].set_linestyle("None")
-        ax.lines[0].set_color(cfg["primary_color"])
-        ax.lines[0].set_markersize(max(3, cfg["marker_size"] / 12))
-        ax.lines[1].set_color(cfg["secondary_color"])
-        ax.lines[1].set_linestyle(cfg["aux_line_style"])
-        ax.lines[1].set_linewidth(cfg["aux_line_width"])
-    apply_ax_style(ax, title, "Theoretical quantiles", "Ordered residuals", plot_key=plot_key)
-    return fig
-
 
 __all__ = [name for name in globals() if not name.startswith('_')]
