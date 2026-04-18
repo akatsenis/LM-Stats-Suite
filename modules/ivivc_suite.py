@@ -173,9 +173,9 @@ def _sanitize_editor_table(model_name, editor_df):
     if df[["Initial Value", "Min (≥)", "Max (≤)"]].isna().any().any():
         raise ValueError(f"All initial, minimum, and maximum values must be numeric for {model_name}.")
 
-    init = df["Initial Value"].to_numpy(dtype=float)
-    lb = df["Min (≥)"].to_numpy(dtype=float)
-    ub = df["Max (≤)"].to_numpy(dtype=float)
+    init = np.array(df["Initial Value"].to_numpy(dtype=float), dtype=float, copy=True)
+    lb = np.array(df["Min (≥)"].to_numpy(dtype=float), dtype=float, copy=True)
+    ub = np.array(df["Max (≤)"].to_numpy(dtype=float), dtype=float, copy=True)
 
     for i, pname in enumerate(param_names):
         if pname == "Fmax":
