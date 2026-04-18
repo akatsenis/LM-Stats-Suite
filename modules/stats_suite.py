@@ -1642,22 +1642,13 @@ def render():
                 df = parse_pasted_table(data_input, header=True)
                 num_cols = get_numeric_columns(df)
                 all_cols = list(df.columns)
-                c1, c2, c3, c4, c5 = st.columns([1.2, 1, 1, 0.8, 1])
+                c1, c2, c3 = st.columns([1.25, 1, 1])
                 with c1:
                     vars_sel = st.multiselect("Numeric variables", num_cols, default=num_cols)
                 with c2:
                     label_col = st.selectbox("Label column (optional)", ["(None)"] + all_cols)
                 with c3:
                     group_col = st.selectbox("Group column (optional)", ["(None)"] + [c for c in all_cols if c != label_col])
-                with c4:
-                    show_ellipses = st.checkbox("Show ellipses", value=True)
-                with c5:
-                    ellipse_mode = st.selectbox(
-                        "Ellipse mode",
-                        ["Overall", "By group", "Both"],
-                        disabled=not show_ellipses,
-                )
-
     
                 if len(vars_sel) >= 2:
                     X = df[vars_sel].apply(to_numeric).dropna()
