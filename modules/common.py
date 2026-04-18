@@ -1012,18 +1012,29 @@ def dis_plot_bootstrap_f2_distribution(boot_vals, observed_f2, ci_low=None, ci_h
     if len(boot_vals) < 5:
         return None
     fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+    mean_boot = float(np.mean(boot_vals))
     sd_boot = np.std(boot_vals, ddof=1)
     if sd_boot > 0:
-        kde = gaussian_kde(boot_vals); x_lo = min(x_min, np.min(boot_vals) - 2 * sd_boot, observed_f2 - 5); x_hi = max(x_max, np.max(boot_vals) + 2 * sd_boot, observed_f2 + 5)
+        kde = gaussian_kde(boot_vals); x_lo = min(x_min, np.min(boot_vals) - 2 * sd_boot, observed_f2 - 5, mean_boot - 5); x_hi = max(x_max, np.max(boot_vals) + 2 * sd_boot, observed_f2 + 5, mean_boot + 5)
         if ci_low is not None: x_lo = min(x_lo, ci_low - 3)
         if ci_high is not None: x_hi = max(x_hi, ci_high + 3)
-        x_grid = np.linspace(x_lo, x_hi, 600); y_grid = kde(x_grid); ax.fill_between(x_grid, y_grid, color=cfg["band_color"], alpha=0.15); ax.plot(x_grid, y_grid, color=cfg["primary_color"], linewidth=cfg["line_width"], linestyle=cfg["line_style"]); y_top = float(np.max(y_grid))
+        x_grid = np.linspace(x_lo, x_hi, 600); y_grid = kde(x_grid); y_grid = np.asarray(y_grid, dtype=float); y_grid[0] = 0.0; y_grid[-1] = 0.0
+        ax.fill_between(x_grid, y_grid, color=cfg["band_color"], alpha=0.15)
+        ax.plot(x_grid, y_grid, color=cfg["primary_color"], linewidth=cfg["line_width"], linestyle=cfg["line_style"])
     else:
-        ax.axvline(observed_f2, color=cfg["primary_color"], linewidth=cfg["line_width"]); y_top = 1.0
-    ax.axvline(observed_f2, color=cfg["primary_color"], linestyle=cfg["aux_line_style"], linewidth=cfg["aux_line_width"])
+        ax.axvline(mean_boot, color=cfg["primary_color"], linewidth=cfg["line_width"])
+    ax.axvline(observed_f2, color=cfg["primary_color"], linestyle=cfg["aux_line_style"], linewidth=cfg["aux_line_width"], alpha=0.65)
+    ax.axvline(mean_boot, color=cfg["primary_color"], linewidth=max(cfg["line_width"], cfg["aux_line_width"] + 0.6))
     if ci_low is not None: ax.axvline(ci_low, color=cfg["tertiary_color"], linestyle=cfg["aux_line_style"], linewidth=cfg["line_width"])
     if ci_high is not None: ax.axvline(ci_high, color=cfg["tertiary_color"], linestyle=cfg["aux_line_style"], linewidth=cfg["line_width"])
     apply_ax_style(ax, title, "f2 values", "Density", legend=False, plot_key="Dissolution comparison"); ax.set_xlim(x_min, x_max)
+    y_top = float(ax.get_ylim()[1]) if ax.get_ylim()[1] > 0 else 1.0
+    text_kw = dict(rotation=90, va="top", fontsize=9, clip_on=False)
+    ax.text(mean_boot, y_top * 0.98, f"Mean = {mean_boot:.2f}", ha="right", color=cfg["primary_color"], bbox=dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor=cfg["primary_color"], alpha=0.65), **text_kw)
+    if ci_low is not None:
+        ax.text(ci_low, y_top * 0.96, f"Lower CI = {ci_low:.2f}", ha="right", color=cfg["tertiary_color"], bbox=dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor=cfg["tertiary_color"], alpha=0.65), **text_kw)
+    if ci_high is not None:
+        ax.text(ci_high, y_top * 0.94, f"Upper CI = {ci_high:.2f}", ha="left", color=cfg["tertiary_color"], bbox=dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor=cfg["tertiary_color"], alpha=0.65), **text_kw)
     return fig
 
 __all__ = [name for name in globals() if not name.startswith('_')]
