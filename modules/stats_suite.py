@@ -17,14 +17,13 @@ show_figure = common.show_figure
 DEFAULT_DECIMALS = common.DEFAULT_DECIMALS
 
 TOOLS = [
-    '01 - Descriptive Statistics',
-    '02 - Regression Analysis',
-    '03 - Shelf Life Estimator',
-    '04 - Dissolution Comparison (f2)',
-    '05 - Two-Sample Tests',
-    '06 - Two-Way ANOVA / GLM',
-    '07 - Tolerance & Confidence Intervals',
-    '08 - PCA Analysis',
+    '📊 Descriptive Statistics',
+    '📈 Regression Analysis',
+    '⏳ Shelf Life Estimator',
+    '⚖️ Two-Sample Tests',
+    '📐 Two-Way ANOVA / GLM',
+    '🎯 Tolerance & Confidence Intervals',
+    '🌐 PCA Analysis',
 ]
 
 SAMPLE_DATA = {
@@ -258,10 +257,10 @@ def render():
     st.sidebar.title("🔬 lm Stats")
     st.sidebar.markdown("Stats Suite")
     tool = st.sidebar.radio("Stats tool", TOOLS, key="stats_tool")
-    st.sidebar.caption("Use the pages menu to switch to DoE Studio.")
+    st.sidebar.caption("Use the app navigation to switch between Stats Suite, IVIVC Suite, and DoE Studio.")
 
-    if tool == "01 - Descriptive Statistics":
-        app_header("📊 App 01 - Descriptive Statistics", "Paste one or more numeric columns with headers. For one column, get a graphical summary. For multiple columns, choose a reference and a test column to compare.")
+    if tool == "📊 Descriptive Statistics":
+        app_header("📊 Descriptive Statistics", "Paste one or more numeric columns with headers. For one column, get a graphical summary. For multiple columns, choose a reference and a test column to compare.")
         c1, c2 = st.columns([1, 5])
         with c1:
             st.button("Sample Data", key="sample_desc", on_click=load_sample_text, args=("desc_input", "desc"))
@@ -342,8 +341,8 @@ def render():
                                 tables = {"Summary of Means": summary_tbl, "Normality Tests": normality_tbl, "Equal Variances Test": eqvar_tbl, "ANOVA": anova_tbl, "Model Summary (ANOVA)": model_tbl, "Mean / Distribution Comparison": comp_tbl}
                         export_results(prefix="descriptive_statistics", report_title="Statistical Analysis Report", module_name="Descriptive Statistics", statistical_analysis="Descriptive and comparison statistics were calculated for the selected columns, including normality checks and confidence/tolerance intervals.", offer_text="This module summarizes one or two populations and provides a graphical summary plus common comparison tests.", python_tools="pandas, numpy, scipy.stats, statsmodels, matplotlib, openpyxl, reportlab", table_map=tables, figure_map=figs, conclusion="Review the tables and graphical summary to judge center, spread, normality, and possible differences.", decimals=decimals)
 
-    if tool == "02 - Regression Analysis":
-        app_header("📈 App 02 - Regression Analysis", "Linear regression with CI / PI / both, one-sided or two-sided bands, prediction points, and optional spec-limit crossing.")
+    if tool == "📈 Regression Analysis":
+        app_header("📈 Regression Analysis", "Linear regression with CI / PI / both, one-sided or two-sided bands, prediction points, and optional spec-limit crossing.")
         left, right = st.columns([1.45, 1])
         with left:
             c1, c2 = st.columns([1, 5])
@@ -370,8 +369,7 @@ def render():
                 with c9: x_min_txt = st.text_input("X min", value="")
                 with c10:
                     pred_arr = parse_x_values(x_pred_text)
-                    default_xmax = str(float(max(data_df["x"].max(), pred_arr.max()) if len(pred_arr) else float(data_df["x"].max()) * 1.15))
-                    x_max_txt = st.text_input("X max", value=default_xmax)
+                    x_max_txt = st.text_input("X max", value="")
                 with c11: decimals = st.slider("Decimals", 1, 8, DEFAULT_DECIMALS, key="reg_dec_refined")
                 with c12: reg_alpha = st.number_input("Trend test α", min_value=0.0001, max_value=0.2000, value=0.0500, step=0.0050, format="%.4f", key="reg_alpha_trend")
                 s1, s2, s3, s4 = st.columns([0.9, 1, 1, 1.2])
@@ -413,8 +411,8 @@ def render():
             except Exception as e:
                 st.error(str(e))
 
-    if tool == "03 - Shelf Life Estimator":
-        app_header("⏳ App 03 - Shelf Life Estimator", "Paste stability data, choose lower or upper specification, and estimate shelf life from fit, CI, or PI crossing.")
+    if tool == "⏳ Shelf Life Estimator":
+        app_header("⏳ Shelf Life Estimator", "Paste stability data, choose lower or upper specification, and estimate shelf life from fit, CI, or PI crossing.")
         def sl_predict_local(model, x_values, confidence=0.95, one_sided=True):
             x_values = np.asarray(x_values, dtype=float).ravel(); Xg = np.column_stack([np.ones(len(x_values)), x_values]); beta = np.array([model["intercept"], model["slope"]]); fit = Xg @ beta
             h = np.einsum("ij,jk,ik->i", Xg, model["XtX_inv"], Xg); se_mean = model["s"] * np.sqrt(h); se_pred = model["s"] * np.sqrt(1 + h); alpha = 1 - confidence; tcrit = t.ppf(confidence, model["df"]) if one_sided else t.ppf(1 - alpha / 2, model["df"])
@@ -503,8 +501,8 @@ def render():
             except Exception as e:
                 st.error(str(e))
 
-    if tool == "04 - Dissolution Comparison (f2)":
-        app_header("💊 App 04 - Dissolution Comparison (f2)", "FDA-style point selection, conventional f2 checks, and optional bootstrap / BCa confidence intervals.")
+    if tool == "💊 Dissolution Comparison (f2)":
+        app_header("💊 Dissolution Comparison (f2)", "FDA-style point selection, conventional f2 checks, and optional bootstrap / BCa confidence intervals.")
         col1, col2 = st.columns(2)
         with col1:
             c_sample_ref, c_sample_fill = st.columns([1, 5])
@@ -572,8 +570,8 @@ def render():
             except Exception as e:
                 st.error(str(e))
 
-    if tool == "05 - Two-Sample Tests":
-        app_header("⚖️ App 05 - Two-Sample Tests", "Paste one table with headers, then choose any two sample columns to compare.")
+    if tool == "⚖️ Two-Sample Tests":
+        app_header("⚖️ Two-Sample Tests", "Paste one table with headers, then choose any two sample columns to compare.")
         c1, c2 = st.columns([1, 5])
         with c1: st.button("Sample Data", key="sample_two", on_click=load_sample_text, args=("two_input", "two_sample"))
         with c2: data_input = st.text_area("Data table (with headers)", height=240, key="two_input")
@@ -607,18 +605,31 @@ def render():
                         tests = pd.DataFrame({"Test": ["AD test of paired differences", "Paired t-test", "Wilcoxon signed-rank"], "Statistic": [ad_d, t_stat, w_stat], "P-Value": [p_d, t_p, w_p], "Conclusion": ["Normal differences" if nd else "Non-normal differences", "Significant" if t_p < alpha else "Not significant", "Significant" if (pd.notna(w_p) and w_p < alpha) else "Not significant"]})
                     report_table(tests, f"Two-sample test results (α = {alpha})", decimals)
                     fig_box, ax = plt.subplots(figsize=(FIG_W, FIG_H)); ax.boxplot([x, y], tick_labels=[sample_a, sample_b], patch_artist=True); apply_ax_style(ax, "Two-sample comparison", "Sample", "Value", plot_key="Two-sample box plot"); show_figure(fig_box)
+                    fig_violin, axv = plt.subplots(figsize=(FIG_W, FIG_H))
+                    violin_parts = axv.violinplot([x, y], positions=[1, 2], showmeans=True, showextrema=True)
+                    for body, color in zip(violin_parts["bodies"], [PRIMARY_COLOR, SECONDARY_COLOR]):
+                        body.set_facecolor(color)
+                        body.set_edgecolor(color)
+                        body.set_alpha(0.28)
+                    for key in ["cmeans", "cmins", "cmaxes", "cbars"]:
+                        if key in violin_parts:
+                            violin_parts[key].set_color("#111827")
+                            violin_parts[key].set_linewidth(1.0)
+                    axv.set_xticks([1, 2]); axv.set_xticklabels([sample_a, sample_b])
+                    apply_ax_style(axv, "Two-sample violin plot", "Sample", "Value", plot_key="Two-sample box plot")
+                    show_figure(fig_violin)
                     fig_dens, ax2 = plt.subplots(figsize=(FIG_W, FIG_H))
                     if len(np.unique(x)) > 1:
                         xs = np.linspace(np.min(x), np.max(x), 200); ax2.plot(xs, gaussian_kde(x)(xs), color=PRIMARY_COLOR, lw=2, label=sample_a)
                     if len(np.unique(y)) > 1:
                         ys = np.linspace(np.min(y), np.max(y), 200); ax2.plot(ys, gaussian_kde(y)(ys), color=SECONDARY_COLOR, lw=2, label=sample_b)
                     apply_ax_style(ax2, "Density comparison", "Value", "Density", legend=True, plot_key="Two-sample density plot"); show_figure(fig_dens)
-                    export_results(prefix="two_sample_tests", report_title="Statistical Analysis Report", module_name="Two-Sample Tests", statistical_analysis="Two selected sample columns were compared using normality checks and either independent- or paired-sample tests.", offer_text="This module compares two populations for differences in means or distributions.", python_tools="pandas, numpy, scipy.stats, statsmodels, matplotlib, openpyxl, reportlab", table_map={"Summary": desc, "Tests": tests}, figure_map={"Box plot": fig_to_png_bytes(fig_box), "Density plot": fig_to_png_bytes(fig_dens)}, conclusion="Review both parametric and non-parametric results when deciding whether the two samples differ.", decimals=decimals)
+                    export_results(prefix="two_sample_tests", report_title="Statistical Analysis Report", module_name="Two-Sample Tests", statistical_analysis="Two selected sample columns were compared using normality checks and either independent- or paired-sample tests.", offer_text="This module compares two populations for differences in means or distributions.", python_tools="pandas, numpy, scipy.stats, statsmodels, matplotlib, openpyxl, reportlab", table_map={"Summary": desc, "Tests": tests}, figure_map={"Box plot": fig_to_png_bytes(fig_box), "Violin plot": fig_to_png_bytes(fig_violin), "Density plot": fig_to_png_bytes(fig_dens)}, conclusion="Review both parametric and non-parametric results when deciding whether the two samples differ.", decimals=decimals)
             except Exception as e:
                 st.error(str(e))
 
-    if tool == "06 - Two-Way ANOVA / GLM":
-        app_header("📐 App 06 - Two-Way ANOVA / General Linear Model", "Use classic two-way ANOVA when you have two factors only, or switch naturally to a general linear model when you add more factors and/or covariates.")
+    if tool == "📐 Two-Way ANOVA / GLM":
+        app_header("📐 Two-Way ANOVA / General Linear Model", "Use classic two-way ANOVA when you have two factors only, or switch naturally to a general linear model when you add more factors and/or covariates.")
         c1, c2 = st.columns([1, 5])
         with c1: st.button("Sample Data", key="sample_anova", on_click=load_sample_text, args=("anova_input", "anova"))
         with c2: data_input = st.text_area("Paste data with headers", height=240, key="anova_input")
@@ -692,8 +703,8 @@ def render():
             except Exception as e:
                 st.error(str(e))
 
-    if tool == "07 - Tolerance & Confidence Intervals":
-        app_header("🎯 App 07 - Tolerance & Confidence Intervals", "Summarize central tendency, normal-theory confidence intervals, tolerance intervals, and supporting distribution diagnostics.")
+    if tool == "🎯 Tolerance & Confidence Intervals":
+        app_header("🎯 Tolerance & Confidence Intervals", "Summarize central tendency, normal-theory confidence intervals, tolerance intervals, and supporting distribution diagnostics.")
         c1, c2 = st.columns([1, 5])
         with c1: st.button("Sample Data", key="sample_ti", on_click=load_sample_text, args=("ti_input", "ti"))
         with c2: data_input = st.text_area("Paste one table with headers", height=240, key="ti_input")
@@ -827,6 +838,22 @@ def render():
                     apply_ax_style(ax, "Sample distributions", "Sample", "Value", plot_key="Tolerance/CI box plot")
                     show_figure(fig_box, "Sample distributions")
 
+                    fig_violin, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+                    violin_parts = ax.violinplot(data_list, positions=np.arange(1, len(data_list) + 1), showmeans=True, showextrema=True)
+                    palette = colors[:len(data_list)]
+                    for body, color in zip(violin_parts["bodies"], palette):
+                        body.set_facecolor(color)
+                        body.set_edgecolor(color)
+                        body.set_alpha(0.25)
+                    for key in ["cmeans", "cmins", "cmaxes", "cbars"]:
+                        if key in violin_parts:
+                            violin_parts[key].set_color("#111827")
+                            violin_parts[key].set_linewidth(1.0)
+                    ax.set_xticks(np.arange(1, len(labels) + 1))
+                    ax.set_xticklabels(labels)
+                    apply_ax_style(ax, "Violin plot of sample distributions", "Sample", "Value", plot_key="Tolerance/CI box plot")
+                    show_figure(fig_violin, "Violin plot of sample distributions")
+
                     fig_hist, ax = plt.subplots(figsize=(FIG_W, FIG_H))
                     bins = max(5, min(12, int(np.sqrt(max(len(arr) for arr in data_list))) + 2))
                     for i, arr in enumerate(data_list):
@@ -850,6 +877,7 @@ def render():
                     figure_map = {
                         "Mean with confidence and tolerance intervals": fig_to_png_bytes(fig_interval),
                         "Box plot": fig_to_png_bytes(fig_box),
+                        "Violin plot": fig_to_png_bytes(fig_violin),
                         "Histogram and density view": fig_to_png_bytes(fig_hist),
                         "Normal probability plots": fig_to_png_bytes(fig_qq),
                     }
@@ -869,8 +897,8 @@ def render():
             except Exception as e:
                 st.error(str(e))
 
-    if tool == "08 - PCA Analysis":
-        app_header("🌐 App 08 - PCA Analysis", "Reduce multivariate data to principal components and visualize scores and loadings.")
+    if tool == "🌐 PCA Analysis":
+        app_header("🌐 PCA Analysis", "Reduce multivariate data to principal components and visualize scores and loadings.")
         c1, c2 = st.columns([1, 5])
         with c1: st.button("Sample Data", key="sample_pca", on_click=load_sample_text, args=("pca_input", "pca"))
         with c2: data_input = st.text_area("Paste data with headers", height=240, key="pca_input")
