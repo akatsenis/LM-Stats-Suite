@@ -132,16 +132,119 @@ def render_display_settings():
     if "plot_style_cfg" not in st.session_state:
         st.session_state["plot_style_cfg"] = {k: {} for k in PLOT_STYLE_KEYS}
         st.session_state["plot_style_cfg"]["All graphs"] = DEFAULT_STYLE_CFG.copy()
+
     with st.sidebar.expander("Display & export settings", expanded=False):
         DEFAULT_DECIMALS = st.number_input("Default decimals", min_value=1, max_value=8, value=int(st.session_state.get("default_decimals", 3)), step=1, key="global_default_decimals")
         st.session_state["default_decimals"] = DEFAULT_DECIMALS
+        target_graph = st.selectbox("Graph to customize", PLOT_STYLE_KEYS, index=0, key="target_graph_style")
+        current_cfg = safe_get_plot_cfg(target_graph)
+        st.caption("Direct click-to-style on a matplotlib figure is not reliable in Streamlit. Use the graph selector above to apply formatting to one graph at a time.")
+
+        st.markdown("**Sizes**")
+        s1, s2, s3 = st.columns(3)
+        with s1:
+            fig_w = st.number_input("Figure width", min_value=3.0, max_value=16.0, value=float(current_cfg.get("fig_w", 6.8)), step=0.2, key=f"{target_graph}_fig_w")
+            marker_size = st.number_input("Marker size", min_value=1, max_value=200, value=int(current_cfg.get("marker_size", 32)), step=1, key=f"{target_graph}_ms")
+            font_size = st.number_input("Font size", min_value=6, max_value=24, value=int(current_cfg.get("font_size", 10)), step=1, key=f"{target_graph}_font_size")
+        with s2:
+            fig_h = st.number_input("Figure height", min_value=2.5, max_value=12.0, value=float(current_cfg.get("fig_h", 4.3)), step=0.2, key=f"{target_graph}_fig_h")
+            line_width = st.number_input("Line width", min_value=0.2, max_value=6.0, value=float(current_cfg.get("line_width", 1.8)), step=0.1, key=f"{target_graph}_lw")
+            label_size = st.number_input("Axis label size", min_value=6, max_value=28, value=int(current_cfg.get("label_size", 10)), step=1, key=f"{target_graph}_label_size")
+        with s3:
+            aux_line_width = st.number_input("Aux line width", min_value=0.2, max_value=6.0, value=float(current_cfg.get("aux_line_width", 1.2)), step=0.1, key=f"{target_graph}_alw")
+            border_width = st.number_input("Border size", min_value=0.2, max_value=5.0, value=float(current_cfg.get("border_width", 1.0)), step=0.1, key=f"{target_graph}_bw")
+            title_size = st.number_input("Title size", min_value=6, max_value=30, value=int(current_cfg.get("title_size", 12)), step=1, key=f"{target_graph}_title_size")
+
+        st.markdown("**Types**")
+        t1, t2, t3, t4 = st.columns(4)
+        marker_options = ["o", "s", "^", "D", "v", "P", "X", "*", "+", "x"]
+        line_names = list(LINE_STYLE_MAP.keys())
+        axis_type_options = ["standard", "boxed", "left-bottom only"]
+        font_opts = ["DejaVu Sans", "Arial", "Helvetica", "Times New Roman", "Courier New"]
+        with t1:
+            marker_style = st.selectbox("Marker type", marker_options, index=marker_options.index(current_cfg.get("marker_style", "o")) if current_cfg.get("marker_style", "o") in marker_options else 0, key=f"{target_graph}_marker_style")
+        with t2:
+            line_style_name = st.selectbox("Line type", line_names, index=line_names.index(next((k for k,v in LINE_STYLE_MAP.items() if v == current_cfg.get("line_style", "-")), "Solid")), key=f"{target_graph}_line_style")
+        with t3:
+            axis_type = st.selectbox("Axis type", axis_type_options, index=axis_type_options.index(current_cfg.get("axis_type", "standard")) if current_cfg.get("axis_type", "standard") in axis_type_options else 0, key=f"{target_graph}_axis_type")
+        with t4:
+            font_family = st.selectbox("Font type", font_opts, index=font_opts.index(current_cfg.get("font_family", "DejaVu Sans")) if current_cfg.get("font_family", "DejaVu Sans") in font_opts else 0, key=f"{target_graph}_font_family")
+
+        st.markdown("**Colors**")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            marker_color = st.color_picker("Marker color", value=current_cfg.get("marker_color", current_cfg.get("primary_color", "#1f77b4")), key=f"{target_graph}_marker_color")
+        with c2:
+            line_color = st.color_picker("Line color", value=current_cfg.get("line_color", current_cfg.get("primary_color", "#1f77b4")), key=f"{target_graph}_line_color")
+        with c3:
+            border_color = st.color_picker("Border color", value=current_cfg.get("border_color", "#111827"), key=f"{target_graph}_border_color")
+        with c4:
+            font_color = st.color_picker("Font color", value=current_cfg.get("font_color", "#111827"), key=f"{target_graph}_font_color")
+        c5, c6, c7 = st.columns(3)
+        with c5:
+            band_color = st.color_picker("Band / fill color", value=current_cfg.get("band_color", "#93c5fd"), key=f"{target_graph}_band_color")
+        with c6:
+            secondary_color = st.color_picker("Secondary color", value=current_cfg.get("secondary_color", "#ff7f0e"), key=f"{target_graph}_secondary_color")
+        with c7:
+            tertiary_color = st.color_picker("Tertiary color", value=current_cfg.get("tertiary_color", "#2ca02c"), key=f"{target_graph}_tertiary_color")
+
+        st.markdown("**Axes / legend**")
+        a1, a2, a3, a4 = st.columns(4)
+        with a1:
+            tick_dir = st.selectbox("Tick direction", ["out", "in", "inout"], index=["out", "in", "inout"].index(current_cfg.get("tick_dir", "out")), key=f"{target_graph}_tick_dir")
+            tick_len = st.number_input("Tick size", min_value=0, max_value=20, value=int(current_cfg.get("tick_len", 4)), step=1, key=f"{target_graph}_tick_len")
+        with a2:
+            show_legend = st.checkbox("Show legend", value=bool(current_cfg.get("show_legend", True)), key=f"{target_graph}_show_legend")
+            legend_opts = ["best", "upper right", "upper left", "lower right", "lower left", "center left", "center right", "lower center", "upper center"]
+            legend_loc = st.selectbox("Legend location", legend_opts, index=legend_opts.index(current_cfg.get("legend_loc", "best")) if current_cfg.get("legend_loc", "best") in legend_opts else 0, key=f"{target_graph}_legend_loc")
+        with a3:
+            grid_alpha = st.number_input("Grid transparency", min_value=0.0, max_value=1.0, value=float(current_cfg.get("grid_alpha", 0.00)), step=0.05, key=f"{target_graph}_ga")
+            show_top = st.checkbox("Show top border", value=bool(current_cfg.get("show_top", True)), key=f"{target_graph}_top")
+        with a4:
+            arrow_size = st.number_input("Arrow size", min_value=0.001, max_value=0.3, value=float(current_cfg.get("arrow_size", 0.025)), step=0.005, key=f"{target_graph}_arrow")
+            show_right = st.checkbox("Show right border", value=bool(current_cfg.get("show_right", True)), key=f"{target_graph}_right")
+
+        st.markdown("**Axis limits (leave blank for automatic)**")
+        x1, x2, y1, y2 = st.columns(4)
+        x_min_cfg = x1.text_input("X min", value="" if current_cfg.get("x_min") in [None, ""] else str(current_cfg.get("x_min")), key=f"{target_graph}_xmin")
+        x_max_cfg = x2.text_input("X max", value="" if current_cfg.get("x_max") in [None, ""] else str(current_cfg.get("x_max")), key=f"{target_graph}_xmax")
+        y_min_cfg = y1.text_input("Y min", value="" if current_cfg.get("y_min") in [None, ""] else str(current_cfg.get("y_min")), key=f"{target_graph}_ymin")
+        y_max_cfg = y2.text_input("Y max", value="" if current_cfg.get("y_max") in [None, ""] else str(current_cfg.get("y_max")), key=f"{target_graph}_ymax")
+
+        st.session_state["plot_style_cfg"][target_graph] = {
+            "fig_w": fig_w, "fig_h": fig_h,
+            "show_legend": show_legend, "legend_loc": legend_loc,
+            "primary_color": line_color, "secondary_color": secondary_color, "tertiary_color": tertiary_color,
+            "marker_color": marker_color, "line_color": line_color, "band_color": band_color,
+            "border_color": border_color, "font_color": font_color,
+            "grid_alpha": grid_alpha,
+            "line_style": LINE_STYLE_MAP[line_style_name], "aux_line_style": current_cfg.get("aux_line_style", "--"),
+            "line_width": line_width, "aux_line_width": aux_line_width,
+            "marker_size": marker_size, "marker_style": marker_style,
+            "tick_dir": tick_dir, "tick_len": tick_len, "border_width": border_width,
+            "show_top": show_top, "show_right": show_right, "axis_type": axis_type,
+            "font_family": font_family, "font_size": font_size, "title_size": title_size, "label_size": label_size,
+            "tick_label_size": max(6, font_size - 1),
+            "x_min": x_min_cfg.strip(), "x_max": x_max_cfg.strip(), "y_min": y_min_cfg.strip(), "y_max": y_max_cfg.strip(),
+            "arrow_size": arrow_size,
+        }
+        r1, r2 = st.columns(2)
+        with r1:
+            if st.button("Reset selected graph style", key=f"reset_style_{target_graph}"):
+                st.session_state["plot_style_cfg"][target_graph] = {} if target_graph != "All graphs" else DEFAULT_STYLE_CFG.copy()
+                st.rerun()
+        with r2:
+            if st.button("Reset all graph styles", key="reset_all_graph_styles"):
+                st.session_state["plot_style_cfg"] = {k: {} for k in PLOT_STYLE_KEYS}
+                st.session_state["plot_style_cfg"]["All graphs"] = DEFAULT_STYLE_CFG.copy()
+                st.rerun()
+
     _all_cfg = safe_get_plot_cfg("All graphs")
     FIG_W = _all_cfg["fig_w"]; FIG_H = _all_cfg["fig_h"]; SHOW_LEGEND = _all_cfg["show_legend"]; LEGEND_LOC = _all_cfg["legend_loc"]
     PRIMARY_COLOR = _all_cfg["line_color"]; SECONDARY_COLOR = _all_cfg["secondary_color"]; TERTIARY_COLOR = _all_cfg["tertiary_color"]
     BAND_COLOR = _all_cfg["band_color"]; GRID_ALPHA = _all_cfg["grid_alpha"]; MARKER_SIZE = _all_cfg["marker_size"]
-    FIT_LINE_COLOR = _all_cfg["line_color"]; FIT_LINE_STYLE = _all_cfg["line_style"]; LINE_WIDTH = _all_cfg["line_width"]
-    AREA_ALPHA = 0.16; CI_LINE_STYLE = _all_cfg["aux_line_style"]; PI_LINE_STYLE = _all_cfg["aux_line_style"]
-    SPEC_LINE_STYLE = _all_cfg["aux_line_style"]; ARROW_SIZE = _all_cfg["arrow_size"]
+    FIT_LINE_COLOR = _all_cfg["line_color"]; FIT_LINE_STYLE = _all_cfg["line_style"]; LINE_WIDTH = _all_cfg["line_width"]; AREA_ALPHA = 0.16
+    CI_LINE_STYLE = _all_cfg["aux_line_style"]; PI_LINE_STYLE = _all_cfg["aux_line_style"]; SPEC_LINE_STYLE = _all_cfg["aux_line_style"]; ARROW_SIZE = _all_cfg["arrow_size"]
 
 
 def fig_to_png_bytes(fig):
