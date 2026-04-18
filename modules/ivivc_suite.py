@@ -1,6 +1,7 @@
 import modules.common as common
 from modules.common import *
 from scipy.optimize import least_squares
+from scipy.integrate import solve_ivp
 from scipy.stats import gaussian_kde
 from io import StringIO
 
@@ -1222,6 +1223,586 @@ def save_ivivc_to_session(pack):
         "expanded_parameters": {"A1": pred["A1"], "A2": pred["A2"], "B1": pred["B1"], "B2": pred["B2"], "B3": pred["B3"], "Scale": pred["scale"], "kel_h": pred["kel"]},
     }
 
+
+
+DOSE_UNIT_TO_MG = {
+    "ng": 1e-6,
+    "ug": 1e-3,
+    "mg": 1.0,
+    "g": 1e3,
+}
+
+VOLUME_UNIT_TO_L = {
+    "uL": 1e-6,
+    "mL": 1e-3,
+    "L": 1.0,
+}
+
+CP_MG_PER_L_TO_UNIT = {
+    "mg/L": 1.0,
+    "ug/mL": 1.0,
+    "ng/mL": 1e3,
+    "ug/L": 1e3,
+    "mg/mL": 1e-3,
+}
+
+
+def _dose_to_mg(value, unit):
+    return float(value) * DOSE_UNIT_TO_MG[unit]
+
+
+def _volume_to_l(value, unit):
+    return float(value) * VOLUME_UNIT_TO_L[unit]
+
+
+def _mg_per_l_to_cp_unit(values, unit):
+    return np.asarray(values, dtype=float) * CP_MG_PER_L_TO_UNIT[unit]
+
+
+def _cp_unit_factor(unit):
+    return CP_MG_PER_L_TO_UNIT[unit]
+
+
+def _build_disposition_config(compartments, dose_value, dose_unit, v_value, v_unit, cp_unit, k10, k12=0.0, k21=0.0, k13=0.0, k31=0.0, bio=1.0):
+    compartments = int(compartments)
+    return {
+        "compartments": compartments,
+        "dose_value": float(dose_value),
+        "dose_unit": dose_unit,
+        "dose_mg": _dose_to_mg(dose_value, dose_unit),
+        "V_value": float(v_value),
+        "V_unit": v_unit,
+        "V_L": _volume_to_l(v_value, v_unit),
+        "cp_unit": cp_unit,
+        "cp_factor": _cp_unit_factor(cp_unit),
+        "k10": float(k10),
+        "k12": float(k12 if compartments >= 2 else 0.0),
+        "k21": float(k21 if compartments >= 2 else 0.0),
+        "k13": float(k13 if compartments >= 3 else 0.0),
+        "k31": float(k31 if compartments >= 3 else 0.0),
+        "bio": float(bio),
+    }
+
+
+def _cumfrac_weibull_fmax(model_name, t_h, params):
+    p = np.asarray(params, dtype=float).copy()
+    tt = np.clip(np.asarray(t_h, dtype=float), 0.0, None)
+    if model_name == "Single Weibull":
+        Fmax, MDT1, b1 = p
+        frac = weibull_single(tt, Fmax, MDT1, b1) / 100.0
+    elif model_name == "Double Weibull":
+        Fmax, f1, MDT1, b1, MDT2, b2 = p
+        frac = weibull_double(tt, Fmax, np.clip(f1, 0.0, 1.0), MDT1, b1, MDT2, b2) / 100.0
+    else:
+        Fmax, f1, f2, MDT1, b1, MDT2, b2, MDT3, b3 = p
+        f1 = np.clip(f1, 0.0, 1.0)
+        f2 = np.clip(f2, 0.0, 1.0)
+        if f1 + f2 > 1.0:
+            tot = f1 + f2
+            f1, f2 = f1 / tot, f2 / tot
+        frac = weibull_triple(tt, Fmax, f1, f2, MDT1, b1, MDT2, b2, MDT3, b3) / 100.0
+    return np.clip(frac, 0.0, 1.0)
+
+
+def _deconv_default_bounds(model_name, t_h, y):
+    t_h = np.asarray(t_h, dtype=float)
+    y = np.asarray(y, dtype=float)
+    t_pos = t_h[(t_h > 0) & np.isfinite(t_h)]
+    tmax = float(np.nanmax(t_h)) if len(t_h) else 1.0
+    tmin_pos = float(np.nanmin(t_pos)) if len(t_pos) else max(tmax / 100.0, 1e-6)
+    f_guess = min(100.0, max(10.0, 102.0))
+    if model_name == "Single Weibull":
+        p0 = [f_guess, max(tmax * 0.35, tmin_pos), 1.2]
+        lb = [1e-6, max(tmin_pos * 0.01, 1e-6), 1e-6]
+        ub = [100.0, max(tmax * 10.0, 1.0), 50.0]
+    elif model_name == "Double Weibull":
+        p0 = [f_guess, 0.55, max(tmax * 0.20, tmin_pos), 0.8, max(tmax * 0.75, tmin_pos * 1.5), 1.5]
+        lb = [1e-6, 0.0, max(tmin_pos * 0.01, 1e-6), 1e-6, max(tmin_pos * 0.01, 1e-6), 1e-6]
+        ub = [100.0, 1.0, max(tmax * 10.0, 1.0), 50.0, max(tmax * 10.0, 1.0), 50.0]
+    else:
+        p0 = [f_guess, 0.30, 0.30, max(tmax * 0.12, tmin_pos), 0.8, max(tmax * 0.45, tmin_pos * 1.5), 1.4, max(tmax * 0.95, tmin_pos * 2), 2.0]
+        lb = [1e-6, 0.0, 0.0, max(tmin_pos * 0.01, 1e-6), 1e-6, max(tmin_pos * 0.01, 1e-6), 1e-6, max(tmin_pos * 0.01, 1e-6), 1e-6]
+        ub = [100.0, 1.0, 1.0, max(tmax * 10.0, 1.0), 50.0, max(tmax * 10.0, 1.0), 50.0, max(tmax * 10.0, 1.0), 50.0]
+    return np.asarray(p0, float), np.asarray(lb, float), np.asarray(ub, float)
+
+
+def _deconv_param_split(model_name, params):
+    p = np.asarray(params, dtype=float).copy()
+    if model_name == "Single Weibull":
+        p[0] = np.clip(p[0], 0.0, 100.0)
+    elif model_name == "Double Weibull":
+        p[0] = np.clip(p[0], 0.0, 100.0)
+        p[1] = np.clip(p[1], 0.0, 1.0)
+    else:
+        p[0] = np.clip(p[0], 0.0, 100.0)
+        p[1] = np.clip(p[1], 0.0, 1.0)
+        p[2] = np.clip(p[2], 0.0, 1.0)
+        if p[1] + p[2] > 1.0:
+            tot = p[1] + p[2]
+            p[1], p[2] = p[1] / tot, p[2] / tot
+    return p
+
+
+def _candidate_starts_deconv(model_name, base_init, lb, ub):
+    base = np.asarray(base_init, dtype=float)
+    starts = [base.copy()]
+    if model_name == "Single Weibull":
+        starts += [
+            np.array([min(100.0, base[0] * 0.9), max(base[1] * 0.8, 0.2), base[2] * 0.8]),
+            np.array([min(100.0, base[0] * 1.05), max(base[1] * 1.4, 0.3), base[2] * 1.4]),
+        ]
+    elif model_name == "Double Weibull":
+        starts += [
+            np.array([min(100.0, base[0] * 0.95), 0.30, max(base[2] * 0.8, 0.2), base[3] * 1.2, max(base[4] * 1.2, 0.5), base[5] * 0.9]),
+            np.array([min(100.0, base[0] * 1.02), 0.70, max(base[2] * 1.3, 0.4), base[3] * 0.8, max(base[4] * 0.8, 0.3), base[5] * 1.2]),
+        ]
+    else:
+        starts += [
+            np.array([min(100.0, base[0] * 0.95), 0.20, 0.20, max(base[3] * 0.8, 0.2), base[4], max(base[5] * 1.1, 0.3), base[6] * 1.2, max(base[7] * 1.1, 0.4), base[8] * 0.9]),
+            np.array([min(100.0, base[0] * 1.02), 0.45, 0.15, max(base[3] * 1.2, 0.3), base[4] * 0.85, max(base[5] * 0.8, 0.2), base[6] * 1.1, max(base[7] * 1.3, 0.5), base[8] * 1.2]),
+        ]
+    out = []
+    for s in starts:
+        s = np.clip(s, lb + 1e-12, ub - 1e-12)
+        out.append(s)
+    return out
+
+
+def _kab_from_cumfrac_grid(t_grid_h, cumfrac_grid, delta_h=0.01):
+    t_grid_h = np.asarray(t_grid_h, dtype=float)
+    cumfrac_grid = np.clip(np.asarray(cumfrac_grid, dtype=float), 0.0, 1.0)
+    kab = np.zeros_like(t_grid_h)
+    for i, t in enumerate(t_grid_h):
+        t1 = max(0.0, t - delta_h)
+        t2 = t + delta_h
+        w1 = np.interp(t1, t_grid_h, cumfrac_grid)
+        w2 = np.interp(t2, t_grid_h, cumfrac_grid)
+        kab[i] = max(0.0, (w2 - w1) / max(t2 - t1, 1e-12))
+    return kab
+
+
+def _simulate_pk_ode_from_cumfrac_grid(t_obs_h, t_grid_h, cumfrac_grid, disposition, delta_h=0.01):
+    t_obs_h = np.asarray(t_obs_h, dtype=float)
+    t_grid_h = np.asarray(t_grid_h, dtype=float)
+    cumfrac_grid = np.clip(np.asarray(cumfrac_grid, dtype=float), 0.0, 1.0)
+    kab_grid = _kab_from_cumfrac_grid(t_grid_h, cumfrac_grid, delta_h=delta_h)
+    comps = int(disposition["compartments"])
+    k10 = float(disposition["k10"])
+    k12 = float(disposition.get("k12", 0.0))
+    k21 = float(disposition.get("k21", 0.0))
+    k13 = float(disposition.get("k13", 0.0))
+    k31 = float(disposition.get("k31", 0.0))
+    dose_mg = float(disposition["dose_mg"])
+    bio = float(disposition.get("bio", 1.0))
+    v_l = max(float(disposition["V_L"]), 1e-12)
+    cp_factor = float(disposition["cp_factor"])
+
+    def ode_rhs(t, a):
+        kab = max(0.0, float(np.interp(t, t_grid_h, kab_grid)))
+        a1 = a[0]
+        a2 = a[1] if comps >= 2 else 0.0
+        a3 = a[2] if comps >= 3 else 0.0
+        da1 = bio * dose_mg * kab - k10 * a1 - k12 * a1 + k21 * a2 - k13 * a1 + k31 * a3
+        if comps == 1:
+            return [da1]
+        da2 = k12 * a1 - k21 * a2
+        if comps == 2:
+            return [da1, da2]
+        da3 = k13 * a1 - k31 * a3
+        return [da1, da2, da3]
+
+    y0 = np.zeros(comps, dtype=float)
+    sol = solve_ivp(ode_rhs, (0.0, float(t_grid_h[-1])), y0, t_eval=t_grid_h, method="RK45", rtol=1e-6, atol=1e-9)
+    if not sol.success:
+        raise ValueError("ODE solver failed while simulating the PK profile.")
+    a1_grid = sol.y[0]
+    cp_grid = _mg_per_l_to_cp_unit(a1_grid / v_l, disposition["cp_unit"])
+    cp_obs = np.interp(t_obs_h, t_grid_h, cp_grid)
+    return cp_obs, cp_grid, kab_grid, sol.y
+
+
+def _deconv_predict_pk(model_name, t_obs_h, params, disposition):
+    shape = _deconv_param_split(model_name, params)
+    t_grid = _time_grid_from_obs(t_obs_h)
+    cumfrac = _cumfrac_weibull_fmax(model_name, t_grid, shape)
+    cp_obs, cp_grid, kab_grid, state_grid = _simulate_pk_ode_from_cumfrac_grid(t_obs_h, t_grid, cumfrac, disposition)
+    return {
+        "t_grid_h": t_grid,
+        "cumfrac_grid": cumfrac,
+        "cp_obs": cp_obs,
+        "cp_grid": cp_grid,
+        "kab_grid": kab_grid,
+        "state_grid": state_grid,
+        "shape_params": np.asarray(shape, dtype=float),
+    }
+
+
+def _deconv_residuals(params, t_h, y, model_name, disposition):
+    pred = _deconv_predict_pk(model_name, t_h, params, disposition)["cp_obs"]
+    return pred - y
+
+
+def _deconv_infer_statistics(model_name, t_h, y, params, lb, ub, disposition):
+    pred_pack = _deconv_predict_pk(model_name, t_h, params, disposition)
+    yhat = pred_pack["cp_obs"]
+    resid = y - yhat
+    n = len(y)
+    p = len(params)
+    dof = max(n - p, 0)
+    def _pred_func(tt, *pp):
+        return _deconv_predict_pk(model_name, tt, pp, disposition)["cp_obs"]
+    J = _numerical_jacobian(_pred_func, t_h, np.asarray(params, dtype=float), lb=lb, ub=ub)
+    if dof <= 0:
+        se = np.full(p, np.nan)
+        t_val = np.full(p, np.nan)
+        p_val = np.full(p, np.nan)
+        lcl = np.full(p, np.nan)
+        ucl = np.full(p, np.nan)
+        cov = np.full((p, p), np.nan)
+    else:
+        mse = float(np.sum(resid ** 2) / dof)
+        cov = mse * np.linalg.pinv(J.T @ J)
+        se = np.sqrt(np.clip(np.diag(cov), 0.0, None))
+        t_val = np.divide(np.asarray(params, dtype=float), se, out=np.full_like(np.asarray(params, dtype=float), np.nan), where=se > 0)
+        p_val = 2.0 * (1.0 - stats.t.cdf(np.abs(t_val), dof))
+        tcrit = stats.t.ppf(0.975, dof)
+        lcl = np.asarray(params, dtype=float) - tcrit * se
+        ucl = np.asarray(params, dtype=float) + tcrit * se
+    return {
+        "yhat": yhat, "jacobian": J, "covariance": cov,
+        "se": se, "t_value": t_val, "p_value": p_val, "lcl": lcl, "ucl": ucl,
+        "rse_pct": np.divide(se * 100.0, np.abs(np.asarray(params, dtype=float)), out=np.full_like(np.asarray(params, dtype=float), np.nan), where=np.abs(np.asarray(params, dtype=float)) > 0),
+        "dof": dof,
+        "pred_pack": pred_pack,
+    }
+
+
+def fit_pk_deconvolution_model(t_h, cp, model_name, disposition):
+    t_h = np.asarray(t_h, dtype=float)
+    cp = np.asarray(cp, dtype=float)
+    mask = np.isfinite(t_h) & np.isfinite(cp)
+    t_h = t_h[mask]
+    cp = cp[mask]
+    if model_name == "Single Weibull":
+        param_names = ["Fmax", "MDT1_h", "b1"]
+        display_names = ["Fmax", "MDT1", "β1"]
+    elif model_name == "Double Weibull":
+        param_names = ["Fmax", "f1", "MDT1_h", "b1", "MDT2_h", "b2"]
+        display_names = ["Fmax", "f1", "MDT1", "β1", "MDT2", "β2"]
+    else:
+        param_names = ["Fmax", "f1", "f2", "MDT1_h", "b1", "MDT2_h", "b2", "MDT3_h", "b3"]
+        display_names = ["Fmax", "f1", "f2", "MDT1", "β1", "MDT2", "β2", "MDT3", "β3"]
+    p0, lb, ub = _deconv_default_bounds(model_name, t_h, cp)
+    best = None
+    for start in _candidate_starts_deconv(model_name, p0, lb, ub):
+        try:
+            res = least_squares(_deconv_residuals, x0=start, bounds=(lb, ub), args=(t_h, cp, model_name, disposition), max_nfev=50000, method="trf")
+            if not res.success:
+                continue
+            infer = _deconv_infer_statistics(model_name, t_h, cp, res.x, lb, ub, disposition)
+            yhat = infer["yhat"]
+            rss = float(np.sum((cp - yhat) ** 2))
+            n = len(cp)
+            k = len(res.x)
+            aic = n * np.log(max(rss, 1e-12) / n) + 2 * k
+            bic = n * np.log(max(rss, 1e-12) / n) + k * np.log(max(n, 1))
+            tss = float(np.sum((cp - np.mean(cp)) ** 2))
+            r2 = 1.0 - rss / tss if tss > 0 else np.nan
+            cand = {
+                "params": np.asarray(res.x, dtype=float),
+                "param_names": param_names,
+                "display_names": display_names,
+                "init": p0, "lb": lb, "ub": ub,
+                "aic": float(aic), "bic": float(bic), "rss": rss, "r2": float(r2) if np.isfinite(r2) else np.nan,
+                "se": infer["se"], "t_value": infer["t_value"], "p_value": infer["p_value"],
+                "lcl": infer["lcl"], "ucl": infer["ucl"], "rse_pct": infer["rse_pct"],
+                "yhat": yhat, "pred_pack": infer["pred_pack"],
+            }
+            if (best is None) or (cand["aic"] < best["aic"]):
+                best = cand
+        except Exception:
+            continue
+    if best is None:
+        raise ValueError(f"{model_name} PK deconvolution-through-convolution fit did not converge.")
+    return best
+
+
+def fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition):
+    factor = TIME_UNIT_TO_HOURS[time_unit_label]
+    t_in = pk_df["Time_input"].to_numpy(dtype=float)
+    t_h = t_in * factor
+    cp_cols = [c for c in pk_df.columns if c != "Time_input"]
+    mean_cp = pk_df[cp_cols].mean(axis=1, skipna=True).to_numpy(dtype=float)
+    results = []
+    fits = {}
+    for model_name in MODEL_SPECS:
+        fit = fit_pk_deconvolution_model(t_h, mean_cp, model_name, disposition)
+        fits[model_name] = fit
+        results.append({"Model": model_name, "AIC": fit["aic"], "BIC": fit["bic"], "RSS": fit["rss"], "R²": fit["r2"]})
+    summary_df = pd.DataFrame(results).sort_values("AIC").reset_index(drop=True)
+    best_model = summary_df.iloc[0]["Model"]
+    best_fit = fits[best_model]
+    if disposition["compartments"] == 1:
+        wn = wagner_nelson_fraction(t_h, mean_cp, disposition["k10"])
+    else:
+        wn = np.full_like(t_h, np.nan, dtype=float)
+    detail_rows = []
+    for idx, pname in enumerate(best_fit["display_names"]):
+        detail_rows.append({
+            "Parameter": pname,
+            "Estimate": best_fit["params"][idx],
+            "S.E.": best_fit["se"][idx],
+            "R.S.E (%)": best_fit["rse_pct"][idx],
+            "t-Value": best_fit["t_value"][idx],
+            "p-Value": best_fit["p_value"][idx],
+            "95% LCL": best_fit["lcl"][idx],
+            "95% UCL": best_fit["ucl"][idx],
+        })
+    disp_df = pd.DataFrame([{
+        "Compartments": disposition["compartments"],
+        "Dose": disposition["dose_value"],
+        "Dose units": disposition["dose_unit"],
+        "V": disposition["V_value"],
+        "V units": disposition["V_unit"],
+        "Cp units": disposition["cp_unit"],
+        "BIO": disposition["bio"],
+        "k10": disposition["k10"],
+        "k12": disposition.get("k12", 0.0),
+        "k21": disposition.get("k21", 0.0),
+        "k13": disposition.get("k13", 0.0),
+        "k31": disposition.get("k31", 0.0),
+    }])
+    return {
+        "input_df": pk_df.copy(),
+        "time_factor": factor,
+        "time_unit_label": time_unit_label,
+        "cp_cols": cp_cols,
+        "mean_pk_df": pd.DataFrame({"Time_input": t_in, "Time_h": t_h, "Mean Cp": mean_cp}),
+        "summary_df": summary_df,
+        "best_model": best_model,
+        "best_fit": best_fit,
+        "parameter_df": pd.DataFrame(detail_rows),
+        "wn_df": pd.DataFrame({"Time_input": t_in, "Time_h": t_h, "Wagner-Nelson fraction": wn}),
+        "disposition": disposition,
+        "disposition_df": disp_df,
+    }
+
+
+def plot_deconvolution_pk_fit(pack):
+    cfg = safe_get_plot_cfg("Dissolution comparison")
+    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+    df = pack["input_df"]
+    t = df["Time_input"].to_numpy(dtype=float)
+    for col in pack["cp_cols"]:
+        ax.plot(t, df[col].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
+    mean_df = pack["mean_pk_df"]
+    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean Cp")
+    pred = pack["best_fit"]["yhat"]
+    ax.plot(mean_df["Time_input"], pred, color=cfg["tertiary_color"], linewidth=cfg["line_width"] + 0.8, label=f"Fitted {pack['best_model']} Cp")
+    apply_ax_style(ax, f"Observed and fitted PK profile ({pack['best_model']})", f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
+    return fig
+
+
+def plot_deconvoluted_profile(pack):
+    cfg = safe_get_plot_cfg("Dissolution comparison")
+    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+    pred_pack = pack["best_fit"]["pred_pack"]
+    if pack["disposition"]["compartments"] == 1 and np.isfinite(pack["wn_df"]["Wagner-Nelson fraction"]).any():
+        wn = pack["wn_df"].copy()
+        ax.plot(wn["Time_input"], wn["Wagner-Nelson fraction"] * 100.0, marker="o", linestyle="None", color=cfg["primary_color"], label="Wagner–Nelson reference")
+    ax.plot(pred_pack["t_grid_h"] / pack["time_factor"], pred_pack["cumfrac_grid"] * 100.0, color=cfg["tertiary_color"], linewidth=cfg["line_width"] + 0.8, label=f"Recovered {pack['best_model']} release")
+    title = f"Recovered in vivo release profile ({pack['best_model']})"
+    apply_ax_style(ax, title, f"Time ({pack['time_unit_label']})", "% released / absorbed", legend=True, plot_key="Dissolution comparison")
+    return fig
+
+
+def save_invivofit_to_session(pack):
+    best_model = pack["best_model"]
+    best_fit = pack["best_fit"]
+    st.session_state["InVivoFit"] = {
+        "name": "InVivoFit",
+        "model": best_model,
+        "stored_time_units": "Hours",
+        "parameter_order": best_fit["param_names"],
+        "parameter_display": best_fit["display_names"],
+        "parameter_estimates": {k: float(v) for k, v in zip(best_fit["param_names"], best_fit["params"])},
+        "model_comparison": pack["summary_df"].to_dict(orient="records"),
+        "disposition": pack["disposition"],
+    }
+
+
+def _ivivc_default_bounds(t_h, use_paper_defaults=True, fit_bio=False):
+    t_h = np.asarray(t_h, dtype=float)
+    tmax = float(np.nanmax(t_h)) if len(t_h) else 1.0
+    if use_paper_defaults:
+        p0 = [1.0, 1.0]
+        lb = [0.01, 0.20]
+        ub = [10.0, 5.0]
+        names = ["B2", "B3"]
+    else:
+        p0 = [0.0, 1.0, 0.0, 1.0, 1.0]
+        lb = [-0.5, 0.0, -tmax, 0.01, 0.20]
+        ub = [1.0, 2.0, tmax, 10.0, 5.0]
+        names = ["A1", "A2", "B1", "B2", "B3"]
+    if fit_bio:
+        p0 += [1.0]
+        lb += [0.01]
+        ub += [1.5]
+        names += ["BIO"]
+    return np.asarray(p0, float), np.asarray(lb, float), np.asarray(ub, float), names
+
+
+def _ivivc_expand_params(params, use_paper_defaults=True, fit_bio=False, fixed_bio=1.0):
+    p = np.asarray(params, dtype=float)
+    idx = 0
+    if use_paper_defaults:
+        A1, A2, B1 = 0.0, 1.0, 0.0
+        B2, B3 = p[idx], p[idx + 1]
+        idx += 2
+    else:
+        A1, A2, B1, B2, B3 = p[idx:idx + 5]
+        idx += 5
+    BIO = p[idx] if fit_bio else fixed_bio
+    return float(A1), float(A2), float(B1), float(B2), float(B3), float(BIO)
+
+
+def _predict_ivivc_pk(t_h, saved_invitro, params, disposition, use_paper_defaults=True, fit_bio=False, fixed_bio=1.0):
+    A1, A2, B1, B2, B3, BIO = _ivivc_expand_params(params, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio)
+    t_grid = _time_grid_from_obs(t_h)
+    t_scaled = np.clip(B1 + B2 * np.power(np.clip(t_grid, 0.0, None), B3), 0.0, None)
+    vitro_pct = _evaluate_saved_invitro_dissolution_percent(t_scaled, saved_invitro)
+    tx1 = np.clip(1.0 - vitro_pct / 100.0, 0.0, 1.0)
+    vabs = np.clip(1.0 - (A1 + A2 * tx1), 0.0, 1.0)
+    disp = dict(disposition)
+    disp["bio"] = BIO
+    cp_obs, cp_grid, kab_grid, state_grid = _simulate_pk_ode_from_cumfrac_grid(t_h, t_grid, vabs, disp)
+    return {
+        "t_grid_h": t_grid,
+        "t_scaled_h": t_scaled,
+        "tx1_grid": tx1,
+        "cumfrac_grid": vabs,
+        "cp_obs": cp_obs,
+        "cp_grid": cp_grid,
+        "kab_grid": kab_grid,
+        "state_grid": state_grid,
+        "A1": A1,
+        "A2": A2,
+        "B1": B1,
+        "B2": B2,
+        "B3": B3,
+        "BIO": BIO,
+    }
+
+
+def _ivivc_residuals(params, t_h, y, saved_invitro, disposition, use_paper_defaults=True, fit_bio=False, fixed_bio=1.0):
+    pred = _predict_ivivc_pk(t_h, saved_invitro, params, disposition, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio)["cp_obs"]
+    return pred - y
+
+
+def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper_defaults=True, fit_bio=False, fixed_bio=1.0):
+    factor = TIME_UNIT_TO_HOURS[time_unit_label]
+    t_in = pk_df["Time_input"].to_numpy(dtype=float)
+    t_h = t_in * factor
+    cp_cols = [c for c in pk_df.columns if c != "Time_input"]
+    mean_cp = pk_df[cp_cols].mean(axis=1, skipna=True).to_numpy(dtype=float)
+    p0, lb, ub, pnames = _ivivc_default_bounds(t_h, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio)
+    starts = [p0.copy(), np.clip(p0 * np.array([0.7] * len(p0)), lb + 1e-12, ub - 1e-12), np.clip(p0 * np.array([1.3] * len(p0)), lb + 1e-12, ub - 1e-12)]
+    best = None
+    for start in starts:
+        try:
+            res = least_squares(_ivivc_residuals, x0=start, bounds=(lb, ub), args=(t_h, mean_cp, saved_invitro, disposition, use_paper_defaults, fit_bio, fixed_bio), max_nfev=50000, method="trf")
+            if not res.success:
+                continue
+            pred_pack = _predict_ivivc_pk(t_h, saved_invitro, res.x, disposition, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio)
+            yhat = pred_pack["cp_obs"]
+            rss = float(np.sum((mean_cp - yhat) ** 2))
+            n = len(mean_cp)
+            k = len(res.x)
+            aic = n * np.log(max(rss, 1e-12) / n) + 2 * k
+            bic = n * np.log(max(rss, 1e-12) / n) + k * np.log(max(n, 1))
+            tss = float(np.sum((mean_cp - np.mean(mean_cp)) ** 2))
+            r2 = 1.0 - rss / tss if tss > 0 else np.nan
+            if (best is None) or (aic < best["aic"]):
+                best = {"params": np.asarray(res.x, dtype=float), "pred_pack": pred_pack, "rss": rss, "aic": float(aic), "bic": float(bic), "r2": float(r2) if np.isfinite(r2) else np.nan, "param_names": pnames, "init": p0, "lb": lb, "ub": ub}
+        except Exception:
+            continue
+    if best is None:
+        raise ValueError("IVIVC fit did not converge for the provided PK profile and saved InVitroFit model.")
+    rows = []
+    for name, est, init, lo, hi in zip(best["param_names"], best["params"], best["init"], best["lb"], best["ub"]):
+        rows.append({"Parameter": name, "Estimate": est, "Initial": init, "Min": lo, "Max": hi})
+    if disposition["compartments"] == 1:
+        wn = wagner_nelson_fraction(t_h, mean_cp, disposition["k10"])
+    else:
+        wn = np.full_like(t_h, np.nan, dtype=float)
+    return {
+        "input_df": pk_df.copy(),
+        "time_factor": factor,
+        "time_unit_label": time_unit_label,
+        "cp_cols": cp_cols,
+        "mean_pk_df": pd.DataFrame({"Time_input": t_in, "Time_h": t_h, "Mean Cp": mean_cp}),
+        "fit_stats_df": pd.DataFrame([{"AIC": best["aic"], "BIC": best["bic"], "RSS": best["rss"], "R²": best["r2"]}]),
+        "param_df": pd.DataFrame(rows),
+        "wn_df": pd.DataFrame({"Time_input": t_in, "Time_h": t_h, "Wagner-Nelson fraction": wn}),
+        "fit": best,
+        "saved_invitro_model": saved_invitro["model"],
+        "disposition": disposition,
+        "disposition_df": pd.DataFrame([{
+            "Compartments": disposition["compartments"],
+            "Dose": disposition["dose_value"],
+            "Dose units": disposition["dose_unit"],
+            "V": disposition["V_value"],
+            "V units": disposition["V_unit"],
+            "Cp units": disposition["cp_unit"],
+            "k10": disposition["k10"],
+            "k12": disposition.get("k12", 0.0),
+            "k21": disposition.get("k21", 0.0),
+            "k13": disposition.get("k13", 0.0),
+            "k31": disposition.get("k31", 0.0),
+        }]),
+    }
+
+
+def plot_ivivc_pk_fit(pack):
+    cfg = safe_get_plot_cfg("Dissolution comparison")
+    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+    df = pack["input_df"]
+    t = df["Time_input"].to_numpy(dtype=float)
+    for col in pack["cp_cols"]:
+        ax.plot(t, df[col].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
+    mean_df = pack["mean_pk_df"]
+    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean Cp")
+    ax.plot(mean_df["Time_input"], pack["fit"]["pred_pack"]["cp_obs"], color=cfg["tertiary_color"], linewidth=cfg["line_width"] + 0.8, label="IVIVC fitted Cp")
+    apply_ax_style(ax, f"Observed and IVIVC-fitted PK profile ({pack['saved_invitro_model']})", f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
+    return fig
+
+
+def plot_ivivc_deconv(pack):
+    cfg = safe_get_plot_cfg("Dissolution comparison")
+    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+    pred = pack["fit"]["pred_pack"]
+    if pack["disposition"]["compartments"] == 1 and np.isfinite(pack["wn_df"]["Wagner-Nelson fraction"]).any():
+        wn = pack["wn_df"]
+        ax.plot(wn["Time_input"], wn["Wagner-Nelson fraction"] * 100.0, marker="o", linestyle="None", color=cfg["primary_color"], label="Wagner–Nelson reference")
+    ax.plot(pred["t_grid_h"] / pack["time_factor"], pred["cumfrac_grid"] * 100.0, color=cfg["tertiary_color"], linewidth=cfg["line_width"] + 0.8, label="IVIVC transformed in vitro")
+    apply_ax_style(ax, "Recovered in vivo release and IVIVC fit", f"Time ({pack['time_unit_label']})", "% absorbed / released", legend=True, plot_key="Dissolution comparison")
+    return fig
+
+
+def save_ivivc_to_session(pack):
+    fit = pack["fit"]
+    pred = fit["pred_pack"]
+    st.session_state["IVIVCModel"] = {
+        "name": "IVIVCModel",
+        "source_invitro_model": pack["saved_invitro_model"],
+        "stored_time_units": "Hours",
+        "parameter_estimates": {k: float(v) for k, v in zip(fit["param_names"], fit["params"])},
+        "fit_statistics": pack["fit_stats_df"].to_dict(orient="records"),
+        "expanded_parameters": {"A1": pred["A1"], "A2": pred["A2"], "B1": pred["B1"], "B2": pred["B2"], "B3": pred["B3"], "BIO": pred["BIO"]},
+        "disposition": pack["disposition"],
+    }
+
+
 def render():
     render_display_settings()
     st.sidebar.title("💊 lm Stats")
@@ -1395,23 +1976,49 @@ def render():
                 st.error(str(e))
 
     elif tool == "🧬 Deconvolution through convolution":
-        app_header("🧬 Deconvolution through convolution", "Fit single-, double-, and triple-Weibull in vivo release models directly to PK data through numerical convolution, choose the best model by AIC, and optionally save it in-session as InVivoFit.")
+        app_header("🧬 Deconvolution through convolution", "Fit single-, double-, and triple-Weibull in vivo release models directly to PK data through the ODE workflow from the paper, choose the best model by AIC, and optionally save it in-session as InVivoFit.")
         c1, c2 = st.columns([1, 6])
         with c1:
             st.button("Sample Data", key="sample_pk_deconv", on_click=load_pk_sample_text, args=("pk_input_deconv",))
         with c2:
             pk_text = st.text_area("PK table (first column = time, remaining columns = one or more Cp profiles)", height=260, key="pk_input_deconv")
-        u1, u2 = st.columns([1, 1])
+        u1, u2, u3 = st.columns([1, 1, 1])
         with u1:
             time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=0, key="deconv_time_units")
         with u2:
+            cp_unit = st.selectbox("Cp units", list(CP_MG_PER_L_TO_UNIT.keys()), index=1, key="deconv_cp_units")
+        with u3:
             decimals = st.slider("Decimals", 1, 8, 3, key="deconv_decimals")
-        st.caption("This tool fits a latent in vivo release Weibull, converts it to Cp through one-compartment convolution, compares single/double/triple Weibull models by AIC, and reports only the best-performing model in detail. The deconvoluted profile plot uses Wagner–Nelson points as a visual check against the fitted release curve.")
+        d1, d2, d3, d4 = st.columns(4)
+        with d1:
+            compartments = st.selectbox("Compartments", [1, 2, 3], index=0, key="deconv_compartments")
+        with d2:
+            dose_value = st.number_input("Dose", min_value=0.000001, value=20.0, format="%.6f", key="deconv_dose_value")
+        with d3:
+            dose_unit = st.selectbox("Dose units", list(DOSE_UNIT_TO_MG.keys()), index=2, key="deconv_dose_unit")
+        with d4:
+            v_value = st.number_input("V", min_value=0.000001, value=50.0, format="%.6f", key="deconv_v_value")
+        d5, d6, d7, d8 = st.columns(4)
+        with d5:
+            v_unit = st.selectbox("V units", list(VOLUME_UNIT_TO_L.keys()), index=2, key="deconv_v_unit")
+        with d6:
+            k10 = st.number_input("k10 (1/h)", min_value=0.000001, value=0.254000, format="%.6f", key="deconv_k10")
+        with d7:
+            k12 = st.number_input("k12 (1/h)", min_value=0.0, value=0.100000, format="%.6f", key="deconv_k12", disabled=compartments < 2)
+        with d8:
+            k21 = st.number_input("k21 (1/h)", min_value=0.0, value=0.050000, format="%.6f", key="deconv_k21", disabled=compartments < 2)
+        d9, d10 = st.columns(2)
+        with d9:
+            k13 = st.number_input("k13 (1/h)", min_value=0.0, value=0.050000, format="%.6f", key="deconv_k13", disabled=compartments < 3)
+        with d10:
+            k31 = st.number_input("k31 (1/h)", min_value=0.0, value=0.020000, format="%.6f", key="deconv_k31", disabled=compartments < 3)
+        st.caption("The best model is selected from single, double, and triple Weibull cumulative release functions. KAB is computed as a finite-difference derivative of the Weibull release curve and the PK profile is generated with the paper-style compartment ODEs using the user-supplied microconstants, dose, and V. Fmax is the only amplitude parameter in the Weibull model.")
 
         if pk_text:
             try:
                 pk_df = parse_pk_profile_table(pk_text)
-                pack = fit_pk_deconvolution_suite(pk_df, time_unit_label)
+                disposition = _build_disposition_config(compartments, dose_value, dose_unit, v_value, v_unit, cp_unit, k10, k12, k21, k13, k31, bio=1.0)
+                pack = fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition)
                 fig_pk = plot_deconvolution_pk_fit(pack)
                 fig_deconv = plot_deconvoluted_profile(pack)
                 m1, m2, m3 = st.columns(3)
@@ -1423,11 +2030,12 @@ def render():
                 with t1:
                     inp = pk_df.copy()
                     inp.insert(1, "Time_h", pk_df["Time_input"] * pack["time_factor"])
-                    report_table(inp, "Input PK data used in the convolution-based fit", decimals)
+                    report_table(inp, "Input PK data used in the convolution-through-ODE fit", decimals)
+                    report_table(pack["disposition_df"], "Disposition system used to generate the PK profile", decimals)
                     report_table(pack["summary_df"], "AIC comparison for single, double, and triple Weibull release models", decimals)
                     report_table(pack["parameter_df"], f"Parameter estimates for the best model ({pack['best_model']})", decimals)
                     show_figure(fig_pk, caption=f"Observed and fitted PK profile for the best model ({pack['best_model']})")
-                    show_figure(fig_deconv, caption="Deconvoluted profile (Wagner–Nelson) and fitted in vivo Weibull release")
+                    show_figure(fig_deconv, caption="Recovered in vivo release profile for the best model")
                 with t2:
                     if st.button("Save best model as InVivoFit", key="save_invivofit_button"):
                         save_invivofit_to_session(pack)
@@ -1438,31 +2046,32 @@ def render():
 
                 table_map = {
                     "Input PK Data": pk_df.assign(Time_h=pk_df["Time_input"] * pack["time_factor"]),
+                    "Disposition System": pack["disposition_df"],
                     "Model Comparison": pack["summary_df"],
                     f"Best Model Parameters ({pack['best_model']})": pack["parameter_df"],
-                    "Wagner-Nelson Deconvolution": pack["wn_df"],
+                    "Recovered Release Reference": pack["wn_df"],
                 }
                 figure_map = {
                     f"Observed and fitted PK profile ({pack['best_model']})": fig_to_png_bytes(fig_pk),
-                    "Deconvoluted profile and fitted release": fig_to_png_bytes(fig_deconv),
+                    "Recovered in vivo release profile": fig_to_png_bytes(fig_deconv),
                 }
                 export_results(
                     prefix="ivivc_deconvolution_through_convolution",
                     report_title="Statistical Analysis Report",
                     module_name="Deconvolution through convolution",
-                    statistical_analysis="Single-, double-, and triple-Weibull in vivo release functions were fitted directly to the PK data through numerical convolution with a one-compartment elimination model. Model comparison was based on AIC and only the best model was retained for detailed reporting.",
-                    offer_text="This module is intended to recover a practical in vivo release function from PK data without first performing a separate analytical deconvolution step.",
-                    python_tools="pandas, numpy, scipy.optimize.least_squares, scipy.stats, matplotlib, openpyxl, reportlab",
+                    statistical_analysis="Single-, double-, and triple-Weibull in vivo release functions were fitted directly to the PK data. KAB was computed from the fitted release function by finite difference and the concentration-time profile was generated with the paper-style compartment ODE system using user-supplied microconstants, dose, and V.",
+                    offer_text="This module recovers a practical in vivo release function from PK data without first performing a separate standalone deconvolution step.",
+                    python_tools="pandas, numpy, scipy.optimize.least_squares, scipy.integrate.solve_ivp, scipy.stats, matplotlib, openpyxl, reportlab",
                     table_map=table_map,
                     figure_map=figure_map,
-                    conclusion=f"The best convolution-based in vivo release model by AIC was {pack['best_model']}. Review the fitted PK graph and the Wagner–Nelson comparison before saving the model downstream.",
+                    conclusion=f"The best convolution-based in vivo release model by AIC was {pack['best_model']}. Review the fitted PK graph and the recovered release profile before saving the model downstream.",
                     decimals=decimals,
                 )
             except Exception as e:
                 st.error(str(e))
 
     elif tool == "🔗 IVIVC":
-        app_header("🔗 IVIVC", "Apply the convolution-based IVIVC time-scaling framework from the paper/code to a saved InVitroFit model, fit the transformed in vitro profile directly to PK data, and compare the transformed release against a Wagner–Nelson deconvolution view.")
+        app_header("🔗 IVIVC", "Apply the paper/code IVIVC time-scaling workflow to a saved InVitroFit model, generate KAB by finite difference, and predict PK with the compartment ODE system using user-supplied microconstants, dose, and V.")
         if "InVitroFit" not in st.session_state:
             st.warning("Please run 'In Vitro Weibull Fit' first and save a model as InVitroFit in the current session before using this IVIVC tool.")
         else:
@@ -1473,25 +2082,50 @@ def render():
                 st.button("Sample Data", key="sample_pk_ivivc", on_click=load_pk_sample_text, args=("pk_input_ivivc_tool",))
             with c2:
                 pk_text = st.text_area("PK table (first column = time, remaining columns = one or more Cp profiles)", height=260, key="pk_input_ivivc_tool")
-            u1, u2 = st.columns([1, 1])
+            u1, u2, u3 = st.columns([1, 1, 1])
             with u1:
                 time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=0, key="ivivc_time_units_tool")
             with u2:
+                cp_unit = st.selectbox("Cp units", list(CP_MG_PER_L_TO_UNIT.keys()), index=1, key="ivivc_cp_units_tool")
+            with u3:
                 decimals = st.slider("Decimals", 1, 8, 3, key="ivivc_decimals_tool")
-            o1, o2 = st.columns([1.3, 1])
+            d1, d2, d3, d4 = st.columns(4)
+            with d1:
+                compartments = st.selectbox("Compartments", [1, 2, 3], index=0, key="ivivc_compartments")
+            with d2:
+                dose_value = st.number_input("Dose", min_value=0.000001, value=20.0, format="%.6f", key="ivivc_dose_value")
+            with d3:
+                dose_unit = st.selectbox("Dose units", list(DOSE_UNIT_TO_MG.keys()), index=2, key="ivivc_dose_unit")
+            with d4:
+                v_value = st.number_input("V", min_value=0.000001, value=50.0, format="%.6f", key="ivivc_v_value")
+            d5, d6, d7, d8 = st.columns(4)
+            with d5:
+                v_unit = st.selectbox("V units", list(VOLUME_UNIT_TO_L.keys()), index=2, key="ivivc_v_unit")
+            with d6:
+                k10 = st.number_input("k10 (1/h)", min_value=0.000001, value=0.254000, format="%.6f", key="ivivc_k10")
+            with d7:
+                k12 = st.number_input("k12 (1/h)", min_value=0.0, value=0.100000, format="%.6f", key="ivivc_k12", disabled=compartments < 2)
+            with d8:
+                k21 = st.number_input("k21 (1/h)", min_value=0.0, value=0.050000, format="%.6f", key="ivivc_k21", disabled=compartments < 2)
+            d9, d10 = st.columns(2)
+            with d9:
+                k13 = st.number_input("k13 (1/h)", min_value=0.0, value=0.050000, format="%.6f", key="ivivc_k13", disabled=compartments < 3)
+            with d10:
+                k31 = st.number_input("k31 (1/h)", min_value=0.0, value=0.020000, format="%.6f", key="ivivc_k31", disabled=compartments < 3)
+            o1, o2, o3 = st.columns([1.3, 1, 1])
             with o1:
                 use_paper_defaults = st.checkbox("Use paper/code defaults (A1 = 0, A2 = 1, B1 = 0)", value=True)
             with o2:
-                fix_kel_on = st.checkbox("Fix kel", value=False)
-            fixed_kel = None
-            if fix_kel_on:
-                fixed_kel = st.number_input("Fixed kel (1/h)", min_value=0.000001, value=0.254000, format="%.6f")
-            st.caption("The IVIVC tool uses the saved in vitro Weibull model, applies the paper-style time-scaling function t'' = B1 + B2·t^B3, transforms the residual undissolved fraction through A1 + A2·u_vitro(t''), and predicts Cp by numerical convolution with first-order elimination. By default it mirrors the attached code more closely by fixing A1 = 0, A2 = 1, and B1 = 0.")
+                fit_bio = st.checkbox("Fit BIO", value=True)
+            with o3:
+                fixed_bio = st.number_input("Fixed BIO", min_value=0.000001, value=1.000000, format="%.6f", key="ivivc_fixed_bio", disabled=fit_bio)
+            st.caption("The saved in vitro Weibull model is transformed through the paper-style time-scaling function t'' = B1 + B2·t^B3. The transformed cumulative release is then converted to KAB by finite difference and the PK profile is generated with the compartment ODE system using the user-supplied microconstants, dose, and V.")
 
             if pk_text:
                 try:
                     pk_df = parse_pk_profile_table(pk_text)
-                    pack = fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, use_paper_defaults=use_paper_defaults, fix_kel=fixed_kel)
+                    disposition = _build_disposition_config(compartments, dose_value, dose_unit, v_value, v_unit, cp_unit, k10, k12, k21, k13, k31, bio=(1.0 if fit_bio else fixed_bio))
+                    pack = fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio)
                     fig_pk = plot_ivivc_pk_fit(pack)
                     fig_rel = plot_ivivc_deconv(pack)
                     fit_stats = pack["fit_stats_df"].iloc[0]
@@ -1505,10 +2139,11 @@ def render():
                         inp = pk_df.copy()
                         inp.insert(1, "Time_h", pk_df["Time_input"] * pack["time_factor"])
                         report_table(inp, "Input PK data used in the IVIVC fit", decimals)
+                        report_table(pack["disposition_df"], "Disposition system used in the IVIVC ODE fit", decimals)
                         report_table(pack["fit_stats_df"], "IVIVC fit statistics", decimals)
                         report_table(pack["param_df"], "Estimated IVIVC parameters", decimals)
                         show_figure(fig_pk, caption="Observed PK profile and IVIVC-fitted PK profile")
-                        show_figure(fig_rel, caption="Wagner–Nelson deconvolution and transformed in vitro release from the IVIVC fit")
+                        show_figure(fig_rel, caption="Recovered in vivo release and transformed in vitro release from the IVIVC fit")
                     with t2:
                         if st.button("Save IVIVC model", key="save_ivivc_model_button"):
                             save_ivivc_to_session(pack)
@@ -1519,24 +2154,25 @@ def render():
 
                     table_map = {
                         "Input PK Data": pk_df.assign(Time_h=pk_df["Time_input"] * pack["time_factor"]),
+                        "Disposition System": pack["disposition_df"],
                         "IVIVC Fit Statistics": pack["fit_stats_df"],
                         "Estimated IVIVC Parameters": pack["param_df"],
-                        "Wagner-Nelson Deconvolution": pack["wn_df"],
+                        "Recovered Release Reference": pack["wn_df"],
                     }
                     figure_map = {
                         "Observed and IVIVC-fitted PK profile": fig_to_png_bytes(fig_pk),
-                        "Deconvoluted profile and IVIVC fit": fig_to_png_bytes(fig_rel),
+                        "Recovered in vivo release and IVIVC fit": fig_to_png_bytes(fig_rel),
                     }
                     export_results(
                         prefix="ivivc_convolution_framework",
                         report_title="Statistical Analysis Report",
                         module_name="IVIVC",
-                        statistical_analysis="The saved InVitroFit Weibull model was used as the in vitro dissolution input, transformed through the paper-style time-scaling function, and linked to PK data through numerical convolution with first-order elimination. The IVIVC parameters were estimated directly on the PK data.",
-                        offer_text="This implementation follows the logic of the attached paper/code by fixing the in vitro dissolution model first and then estimating the IVIVC transformation on the PK profile.",
-                        python_tools="pandas, numpy, scipy.optimize.least_squares, scipy.stats, matplotlib, openpyxl, reportlab",
+                        statistical_analysis="The saved InVitroFit Weibull model was used as the in vitro dissolution input, transformed through the paper-style time-scaling function, converted to KAB by finite difference, and linked to PK data through the compartment ODE system with user-supplied microconstants, dose, and V.",
+                        offer_text="This implementation follows the paper/code logic by fixing the in vitro dissolution model first and then estimating the IVIVC transformation on the PK profile.",
+                        python_tools="pandas, numpy, scipy.optimize.least_squares, scipy.integrate.solve_ivp, scipy.stats, matplotlib, openpyxl, reportlab",
                         table_map=table_map,
                         figure_map=figure_map,
-                        conclusion="Review the estimated IVIVC parameters, the fitted PK profile, and the transformed-release comparison before using this model for downstream simulations.",
+                        conclusion="Review the estimated IVIVC parameters, the fitted PK profile, and the recovered-release comparison before using this model for downstream simulations.",
                         decimals=decimals,
                     )
                 except Exception as e:
