@@ -20,7 +20,6 @@ TOOLS = [
     '📊 Descriptive Statistics & Intervals',
     '📈 Regression Analysis',
     '⏳ Shelf Life Estimator',
-    '⚖️ Two-Sample Tests',
     '📐 Two-Way ANOVA / GLM',
     '🌐 PCA Analysis',
 ]
@@ -402,6 +401,94 @@ def _reference_comparison_table(ref_label, ref, sample_arrays, alpha=0.05, conf=
         })
     return pd.DataFrame(rows)
 
+
+def _paired_series(ref_series, sample_series):
+    pair_df = pd.concat([to_numeric(ref_series), to_numeric(sample_series)], axis=1)
+    pair_df.columns = ["Reference", "Sample"]
+    return pair_df.dropna()
+
+
+def _pairwise_assessment_tables(ref_label, numeric_series, selected_cols, alpha=0.05, conf=0.95, include_paired=False):
+    variance_rows = []
+    test_rows = []
+    ref_series = to_numeric(numeric_series[ref_label])
+    ref = ref_series.dropna().to_numpy(dtype=float)
+    ci_label_lo = f"{int(round(conf * 100))}% CI Lower"
+    ci_label_hi = f"{int(round(conf * 100))}% CI Upper"
+    for label in selected_cols[1:]:
+        sample_series = to_numeric(numeric_series[label])
+        arr = sample_series.dropna().to_numpy(dtype=float)
+        f_stat, f_p = _f_test_equal_var(ref, arr)
+        try:
+            lev_stat, lev_p = stats.levene(ref, arr, center="mean")
+        except Exception:
+            lev_stat, lev_p = np.nan, np.nan
+        var_decision = "No strong equal-variance concern"
+        chosen_p = lev_p if pd.notna(lev_p) else f_p
+        if pd.notna(chosen_p) and chosen_p < alpha:
+            var_decision = "Check unequal variance"
+        variance_rows.append({
+            "Reference": ref_label,
+            "Comparison": label,
+            "N (Reference)": len(ref),
+            "N (Sample)": len(arr),
+            "Variance (Reference)": np.var(ref, ddof=1) if len(ref) > 1 else np.nan,
+            "Variance (Sample)": np.var(arr, ddof=1) if len(arr) > 1 else np.nan,
+            "F Statistic": f_stat,
+            "F Test P-Value": f_p,
+            "Levene Statistic": lev_stat,
+            "Levene P-Value": lev_p,
+            "Comment": var_decision,
+        })
+        try:
+            p_student = float(stats.ttest_ind(ref, arr, equal_var=True).pvalue)
+        except Exception:
+            p_student = np.nan
+        try:
+            p_welch = float(stats.ttest_ind(ref, arr, equal_var=False).pvalue)
+        except Exception:
+            p_welch = np.nan
+        try:
+            p_mw = float(stats.mannwhitneyu(ref, arr, alternative="two-sided").pvalue)
+        except Exception:
+            p_mw = np.nan
+        diff, ci_lower, ci_upper = _welch_mean_diff_ci(ref, arr, conf=conf)
+        row = {
+            "Reference": ref_label,
+            "Comparison": label,
+            "Mean (Reference)": np.mean(ref) if len(ref) else np.nan,
+            "Mean (Sample)": np.mean(arr) if len(arr) else np.nan,
+            "Mean Difference (Ref - Sample)": diff,
+            ci_label_lo: ci_lower,
+            ci_label_hi: ci_upper,
+            "Student t-test P-Value": p_student,
+            "Welch t-test P-Value": p_welch,
+            "Mann-Whitney P-Value": p_mw,
+        }
+        if include_paired:
+            pairs = _paired_series(ref_series, sample_series)
+            row["Complete Pairs"] = len(pairs)
+            if len(pairs) >= 2:
+                diffs = pairs.iloc[:, 0].to_numpy(dtype=float) - pairs.iloc[:, 1].to_numpy(dtype=float)
+                row["Paired Mean Difference"] = np.mean(diffs)
+                try:
+                    row["Paired t-test P-Value"] = float(stats.ttest_rel(pairs.iloc[:, 0], pairs.iloc[:, 1]).pvalue)
+                except Exception:
+                    row["Paired t-test P-Value"] = np.nan
+                try:
+                    if np.allclose(diffs, 0.0):
+                        row["Wilcoxon Signed-Rank P-Value"] = np.nan
+                    else:
+                        row["Wilcoxon Signed-Rank P-Value"] = float(stats.wilcoxon(pairs.iloc[:, 0], pairs.iloc[:, 1]).pvalue)
+                except Exception:
+                    row["Wilcoxon Signed-Rank P-Value"] = np.nan
+            else:
+                row["Paired Mean Difference"] = np.nan
+                row["Paired t-test P-Value"] = np.nan
+                row["Wilcoxon Signed-Rank P-Value"] = np.nan
+        test_rows.append(row)
+    return pd.DataFrame(variance_rows), pd.DataFrame(test_rows)
+
 def render():
     render_display_settings()
     st.sidebar.title("🔬 lm Stats")
@@ -441,10 +528,11 @@ def render():
                         default_others = other_options[: min(1, len(other_options))]
                         compare_cols = st.multiselect("Additional sample columns to include", other_options, default=default_others)
                     selected_cols = [ref_col] + [c for c in compare_cols if c != ref_col]
+                    numeric_series = {col: to_numeric(df[col]) for col in selected_cols}
                     sample_arrays = []
                     too_short = []
                     for col in selected_cols:
-                        arr = to_numeric(df[col]).dropna().to_numpy()
+                        arr = numeric_series[col].dropna().to_numpy()
                         if len(arr) < 2:
                             too_short.append(col)
                         else:
@@ -462,6 +550,13 @@ def render():
                             stats_objs.append(s)
                         ref = sample_arrays[0][1]
                         is_single = len(sample_arrays) == 1
+                        paired_compare = False
+                        if not is_single:
+                            paired_compare = st.checkbox(
+                                "Include paired tests using complete reference/sample row pairs",
+                                value=False,
+                                key="desc_paired_compare",
+                            )
 
                         desc_tbl = pd.DataFrame([{
                             "Sample": s["label"],
@@ -510,18 +605,31 @@ def render():
 
                         if not is_single:
                             anova_tbl, model_tbl = _anova_multi_groups(sample_arrays)
-                            comp_tbl = _reference_comparison_table(ref_col, ref, sample_arrays, alpha=alpha, conf=conf)
+                            variance_tbl, tests_tbl = _pairwise_assessment_tables(
+                                ref_col,
+                                numeric_series,
+                                selected_cols,
+                                alpha=alpha,
+                                conf=conf,
+                                include_paired=paired_compare,
+                            )
                             table_map["ANOVA"] = anova_tbl
                             table_map["ANOVA Model Summary"] = model_tbl
-                            if not comp_tbl.empty:
-                                table_map["Reference Comparisons"] = comp_tbl
+                            if not variance_tbl.empty:
+                                table_map["Equal Variance Checks"] = variance_tbl
+                            if not tests_tbl.empty:
+                                table_map["Reference Comparison Tests"] = tests_tbl
                             info_box("This ANOVA table tests whether the selected sample means differ overall across all included groups.")
                             report_table(anova_tbl, "ANOVA", decimals)
                             info_box("This summary reports the pooled within-group variation and the fraction of total variability explained by between-sample differences.")
                             report_table(model_tbl, "Model summary (ANOVA)", decimals)
-                            if not comp_tbl.empty:
-                                info_box("These reference-based comparisons compare each selected sample against the reference column using variance checks, parametric tests, non-parametric testing, and a mean-difference confidence interval.")
-                                report_table(comp_tbl, "Reference comparisons", decimals)
+                            if not variance_tbl.empty:
+                                info_box("These equal-variance checks compare each selected sample against the reference using both the F test and Levene's test. They help you judge whether classical equal-variance methods are reasonable.")
+                                report_table(variance_tbl, "Equal variance checks", decimals)
+                            if not tests_tbl.empty:
+                                pair_msg = " Paired t-test and Wilcoxon signed-rank results are also shown using complete row-wise pairs because paired analysis was requested." if paired_compare else ""
+                                info_box("These reference-based hypothesis tests compare each selected sample against the reference using Student's t-test, Welch's t-test, and Mann-Whitney. This table is especially useful when normality or equal-variance assumptions are doubtful." + pair_msg)
+                                report_table(tests_tbl, "Reference comparison tests", decimals)
 
                         labels = [s["label"] for s in stats_objs]
                         data_list = [s["raw"] for s in stats_objs]
@@ -601,8 +709,8 @@ def render():
                             prefix="descriptive_statistics_intervals",
                             report_title="Statistical Analysis Report",
                             module_name="Descriptive Statistics & Intervals",
-                            statistical_analysis="Descriptive statistics, mean confidence intervals, normal-theory tolerance intervals, normality checks, and reference-based comparisons were calculated for the selected samples. When multiple samples were included, ANOVA was also performed.",
-                            offer_text="This module summarizes one or many populations and supports both interval estimation and reference-based comparison in a single workflow.",
+                            statistical_analysis="Descriptive statistics, mean confidence intervals, normal-theory tolerance intervals, normality checks, equal-variance checks, and reference-based comparisons were calculated for the selected samples. When multiple samples were included, ANOVA was also performed, and optional paired tests were added when requested.",
+                            offer_text="This module summarizes one or many populations and supports interval estimation, ANOVA, variance checks, and reference-based comparison in a single workflow.",
                             python_tools="pandas, numpy, scipy.stats, statsmodels, matplotlib, openpyxl, reportlab",
                             table_map=table_map,
                             figure_map=figure_map,
