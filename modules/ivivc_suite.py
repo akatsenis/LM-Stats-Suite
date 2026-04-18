@@ -152,6 +152,81 @@ def build_weibull_parameter_tables(t_h, y):
     return tables
 
 
+def _parameter_long_to_wide(model_name, df_long):
+    spec = MODEL_SPECS[model_name]
+    df = df_long.copy()
+    if "Parameter" not in df.columns:
+        df.insert(0, "Parameter", spec["display_names"])
+    df["Parameter"] = spec["display_names"]
+    wide = df.set_index("Parameter").T.reset_index().rename(columns={"index": "Setting"})
+    desired_order = ["Setting"] + spec["display_names"]
+    return wide.loc[:, [c for c in desired_order if c in wide.columns]]
+
+
+def _parameter_wide_to_long(model_name, editor_df):
+    spec = MODEL_SPECS[model_name]
+    expected_settings = ["Initial Value", "Min (≥)", "Max (≤)"]
+    df = pd.DataFrame(editor_df).copy().reset_index(drop=True)
+    if "Parameter" in df.columns:
+        return df
+    if "Setting" not in df.columns:
+        if len(df.columns) == len(spec["display_names"]) + 1:
+            df = df.rename(columns={df.columns[0]: "Setting"})
+        else:
+            raise ValueError(f"Parameter table for {model_name} is incomplete.")
+    df["Setting"] = df["Setting"].astype(str)
+    long_rows = []
+    for param in spec["display_names"]:
+        if param not in df.columns:
+            raise ValueError(f"Column '{param}' is missing from the wide parameter table for {model_name}.")
+        row = {"Parameter": param}
+        for setting in expected_settings:
+            match = df.loc[df["Setting"] == setting, param]
+            if match.empty:
+                raise ValueError(f"Row '{setting}' is missing from the wide parameter table for {model_name}.")
+            row[setting] = match.iloc[0]
+        long_rows.append(row)
+    return pd.DataFrame(long_rows)
+
+
+def _wide_parameter_statistics(detail_df, model_name):
+    if detail_df is None or len(detail_df) == 0:
+        return pd.DataFrame()
+    sub = detail_df.loc[detail_df["Model"] == model_name].copy()
+    if sub.empty:
+        return pd.DataFrame()
+    value_cols = [c for c in sub.columns if c not in {"Model", "Coeff."}]
+    wide = sub.set_index("Coeff.")[value_cols].T.reset_index().rename(columns={"index": "Statistic"})
+    desired = ["Statistic"] + sub["Coeff."].tolist()
+    return wide.loc[:, [c for c in desired if c in wide.columns]]
+
+
+def _wide_parameter_estimate_summary(param_df):
+    if param_df is None or len(param_df) == 0:
+        return pd.DataFrame()
+    frames = []
+    for model_name, sub in param_df.groupby("Model", sort=False):
+        row_est = {"Model": model_name, "Statistic": "Mean estimate"}
+        row_se = {"Model": model_name, "Statistic": "SE across replicates"}
+        for _, r in sub.iterrows():
+            row_est[r["Parameter"]] = r["Mean estimate"]
+            row_se[r["Parameter"]] = r["SE across replicates"]
+        frames.extend([row_est, row_se])
+    return pd.DataFrame(frames)
+
+
+def _wide_saved_parameter_table(param_df, model_name):
+    sub = param_df.loc[param_df["Model"] == model_name].copy()
+    if sub.empty:
+        return pd.DataFrame()
+    row_est = {"Statistic": "Mean estimate"}
+    row_se = {"Statistic": "SE across replicates"}
+    for _, r in sub.iterrows():
+        row_est[r["Parameter"]] = r["Mean estimate"]
+        row_se[r["Parameter"]] = r["SE across replicates"]
+    return pd.DataFrame([row_est, row_se])
+
+
 def _slugify(s):
     return ''.join(ch.lower() if ch.isalnum() else '_' for ch in str(s)).strip('_')
 
@@ -160,9 +235,11 @@ def _sanitize_editor_table(model_name, editor_df):
     spec = MODEL_SPECS[model_name]
     param_names = spec["param_names"]
     display_names = spec["display_names"]
-    if editor_df is None or len(editor_df) != len(param_names):
+    if editor_df is None:
         raise ValueError(f"Parameter table for {model_name} is incomplete.")
-    df = editor_df.copy().reset_index(drop=True)
+    df = _parameter_wide_to_long(model_name, editor_df).copy().reset_index(drop=True)
+    if len(df) != len(param_names):
+        raise ValueError(f"Parameter table for {model_name} is incomplete.")
     if "Parameter" not in df.columns:
         df.insert(0, "Parameter", display_names)
     df["Parameter"] = display_names
@@ -513,11 +590,15 @@ def fit_weibull_suite(df, time_unit_label, parameter_tables=None):
         for x_in, x_h, yv in zip(fit_grid_in, fit_grid_h, yfit):
             curve_rows.append({"Model": model_name, "Time_input": x_in, "Time_h": x_h, "Predicted": yv})
 
+    param_df = pd.DataFrame(param_rows)
+    single_profile_detail_df = pd.DataFrame(single_detail_rows)
     return {
         "summary_df": summary_df,
         "per_rep_df": pd.DataFrame(per_rep_rows),
-        "param_df": pd.DataFrame(param_rows),
-        "single_profile_detail_df": pd.DataFrame(single_detail_rows),
+        "param_df": param_df,
+        "param_df_wide": _wide_parameter_estimate_summary(param_df),
+        "single_profile_detail_df": single_profile_detail_df,
+        "single_profile_detail_best_wide": _wide_parameter_statistics(single_profile_detail_df, best_model),
         "mean_profile_df": mean_profile,
         "curve_df": pd.DataFrame(curve_rows),
         "best_model": best_model,
@@ -543,6 +624,22 @@ def plot_weibull_profile_fits(df, fit_pack, time_unit_label):
         alpha = 0.95 if model_name == fit_pack["best_model"] else 0.7
         ax.plot(sub["Time_input"], sub["Predicted"], linewidth=lw, alpha=alpha, label=model_name)
     apply_ax_style(ax, "Observed dissolution profile and Weibull fits", f"Time ({time_unit_label})", "% Dissolved", legend=True, plot_key="Dissolution comparison")
+    return fig
+
+
+def plot_best_model_profile(df, fit_pack, time_unit_label):
+    cfg = safe_get_plot_cfg("Dissolution comparison")
+    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+    time_col = df["Time_input"].to_numpy(dtype=float)
+    rep_cols = fit_pack["replicate_cols"]
+    for rep in rep_cols:
+        ax.plot(time_col, df[rep].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.22, linewidth=max(0.8, cfg["aux_line_width"]))
+    mean_df = fit_pack["mean_profile_df"]
+    ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean")
+    best = fit_pack["best_model"]
+    sub = fit_pack["curve_df"].loc[fit_pack["curve_df"]["Model"] == best]
+    ax.plot(sub["Time_input"], sub["Predicted"], linewidth=cfg["line_width"] + 0.9, color=cfg["tertiary_color"], label=f"Fitted {best}")
+    apply_ax_style(ax, f"Experimental and fitted profile ({best})", f"Time ({time_unit_label})", "% Dissolved", legend=True, plot_key="Dissolution comparison")
     return fig
 
 
@@ -789,19 +886,21 @@ def render():
                     for model_name in MODEL_SPECS:
                         st.markdown(f"**{model_name}**")
                         editor = st.data_editor(
-                            default_tables[model_name],
+                            _parameter_long_to_wide(model_name, default_tables[model_name]),
                             key=f"weibull_editor_{_slugify(model_name)}",
                             hide_index=True,
                             num_rows="fixed",
                             use_container_width=True,
                         )
-                        parameter_tables[model_name] = pd.DataFrame(editor)
+                        parameter_tables[model_name] = _parameter_wide_to_long(model_name, pd.DataFrame(editor))
 
                 fit_pack = fit_weibull_suite(fit_df, time_unit_label, parameter_tables=parameter_tables)
                 summary_df = fit_pack["summary_df"]
                 per_rep_df = fit_pack["per_rep_df"]
                 param_df = fit_pack["param_df"]
+                param_df_wide = fit_pack["param_df_wide"]
                 single_profile_detail_df = fit_pack["single_profile_detail_df"]
+                single_profile_detail_best_wide = fit_pack["single_profile_detail_best_wide"]
                 mean_profile_df = fit_pack["mean_profile_df"]
                 best_model = fit_pack["best_model"]
 
@@ -811,6 +910,7 @@ def render():
                 m3.metric("Profiles fitted", str(len(fit_pack["replicate_cols"])))
 
                 fig_fit = plot_weibull_profile_fits(fit_df, fit_pack, time_unit_label)
+                fig_best = plot_best_model_profile(fit_df, fit_pack, time_unit_label)
                 fig_aic = plot_model_comparison_aic(fit_pack)
                 fig_resid = plot_residuals_best_model(fit_pack, time_unit_label)
 
@@ -824,7 +924,7 @@ def render():
                     input_show.insert(1, "Time_h", fit_df["Time_input"] * fit_pack["time_factor"])
                     report_table(input_show, "Input dissolution data used for Weibull fitting", decimals)
                     report_table(summary_df, "Model comparison summary", decimals)
-                    report_table(param_df, "Parameter estimates summary", decimals)
+                    report_table(param_df_wide, "Parameter estimates summary", decimals)
                     report_table(mean_profile_df, "Mean dissolution profile used for summary fitting", decimals)
                     show_figure(fig_fit, caption="Observed dissolution profile and Weibull fits")
                     show_figure(fig_aic, caption="Weibull model comparison by AIC")
@@ -833,10 +933,11 @@ def render():
                     report_table(per_rep_df, "Per-profile Weibull fit statistics", decimals)
                 if len(fit_pack["replicate_cols"]) == 1:
                     with tabs[2]:
-                        report_table(single_profile_detail_df, "Single-profile parameter statistics from the Jacobian-based covariance calculation", decimals)
+                        report_table(single_profile_detail_best_wide, f"Single-profile parameter statistics from the Jacobian-based covariance calculation for the best model ({best_model})", decimals)
                 with tabs[-1]:
-                    best_params = param_df.loc[param_df["Model"] == best_model].copy()
+                    best_params = _wide_saved_parameter_table(param_df, best_model)
                     report_table(best_params, f"Parameters that will be saved for {best_model}", decimals)
+                    show_figure(fig_best, caption=f"Experimental and fitted profile ({best_model})")
                     if st.button("Save best model as InVitroFit", key="save_invitrofit_button"):
                         save_invitrofit_to_session(fit_pack, time_unit_label)
                         st.success("The best-fitting Weibull model was saved in this session as InVitroFit.")
@@ -848,13 +949,15 @@ def render():
                     "Input Dissolution Data": fit_df.assign(Time_h=fit_df["Time_input"] * fit_pack["time_factor"]),
                     "Model Comparison Summary": summary_df,
                     "Per-Profile Weibull Fit Statistics": per_rep_df,
-                    "Parameter Estimates Summary": param_df,
+                    "Parameter Estimates Summary": param_df_wide,
                     "Mean Dissolution Profile": mean_profile_df,
+                    f"Parameters Saved for {best_model}": _wide_saved_parameter_table(param_df, best_model),
                 }
-                if len(fit_pack["replicate_cols"]) == 1 and not single_profile_detail_df.empty:
-                    table_map["Single-Profile Parameter Statistics"] = single_profile_detail_df
+                if len(fit_pack["replicate_cols"]) == 1 and not single_profile_detail_best_wide.empty:
+                    table_map["Single-Profile Parameter Statistics"] = single_profile_detail_best_wide
                 figure_map = {
                     "Observed dissolution profile and Weibull fits": fig_to_png_bytes(fig_fit),
+                    f"Experimental and fitted profile ({best_model})": fig_to_png_bytes(fig_best),
                     "Weibull model comparison by AIC": fig_to_png_bytes(fig_aic),
                     f"Residual plot for best model ({best_model})": fig_to_png_bytes(fig_resid),
                 }
