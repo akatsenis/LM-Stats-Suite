@@ -1656,7 +1656,7 @@ def render():
                         "Ellipse mode",
                         ["Overall", "By group", "Both"],
                         disabled=not show_ellipses,
-                    )
+                )
 
     
                 if len(vars_sel) >= 2:
