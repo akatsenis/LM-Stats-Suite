@@ -15,26 +15,48 @@ info_box = common.info_box
 
 DEFAULT_DECIMALS = common.DEFAULT_DECIMALS
 
-DOE_SAMPLE_RESPONSE_DATA = """Temp	Speed	pH	Yield
-60	100	5	71.2
-60	100	7	74.8
-60	200	5	78.9
-60	200	7	82.1
-80	100	5	79.4
-80	100	7	83.0
-80	200	5	88.2
-80	200	7	91.5
-70	150	6	84.1
-70	150	6	84.6
+DOE_SAMPLE_RESPONSE_DATA = """Block	Temp	Speed	pH	Catalyst	Yield	Purity	Viscosity
+1	60	100	5.0	0.20	68.4	95.1	412
+1	60	100	7.0	0.20	72.9	96.4	396
+1	60	200	5.0	0.20	77.3	95.8	371
+1	60	200	7.0	0.20	81.8	97.2	352
+1	80	100	5.0	0.20	79.2	96.7	365
+1	80	100	7.0	0.20	84.4	98.1	349
+1	80	200	5.0	0.20	88.1	97.4	330
+1	80	200	7.0	0.20	92.6	98.8	312
+2	60	100	5.0	0.35	70.1	95.5	405
+2	60	100	7.0	0.35	74.6	96.8	389
+2	60	200	5.0	0.35	79.1	96.2	364
+2	60	200	7.0	0.35	83.5	97.6	346
+2	80	100	5.0	0.35	81.0	97.0	357
+2	80	100	7.0	0.35	86.3	98.4	341
+2	80	200	5.0	0.35	89.8	97.8	322
+2	80	200	7.0	0.35	94.1	99.1	304
+1	70	150	6.0	0.275	84.9	97.6	344
+1	70	150	6.0	0.275	85.2	97.8	341
+2	70	150	6.0	0.275	86.0	98.0	338
+2	70	150	6.0	0.275	85.7	97.9	339
 """
 
+
 def _load_sample_design():
-    factor_names = ["Temp", "Speed", "pH"]
-    lows = [60.0, 100.0, 5.0]
-    highs = [80.0, 200.0, 7.0]
+    factor_names = ["Temp", "Speed", "pH", "Catalyst"]
+    lows = [60.0, 100.0, 5.0, 0.20]
+    highs = [80.0, 200.0, 7.0, 0.35]
+    st.session_state["doe_n_factors"] = 4
+    st.session_state["doe_blocks"] = 2
+    st.session_state["doe_replicates"] = 1
+    st.session_state["doe_center_points"] = 2
+    st.session_state["doe_randomize"] = True
+    st.session_state["doe_seed"] = 123
+    for i, name in enumerate(factor_names):
+        st.session_state[f"doe_name_{i}"] = name
+        st.session_state[f"doe_low_{i}"] = lows[i]
+        st.session_state[f"doe_high_{i}"] = highs[i]
     st.session_state["doe_generated_design"] = _build_factorial_design(
-        factor_names, lows, highs, blocks=1, center_points=2, replicates=1, randomize=True, seed=123
+        factor_names, lows, highs, blocks=2, center_points=2, replicates=1, randomize=True, seed=123
     )
+
 
 def _load_sample_response_text():
     st.session_state["doe_response_input"] = DOE_SAMPLE_RESPONSE_DATA
@@ -99,13 +121,13 @@ def render():
 
         c1, c2 = st.columns([1, 1])
         with c1:
-            n_factors = st.number_input("Number of factors", min_value=2, max_value=8, value=3, step=1)
-            blocks = st.number_input("Blocks", min_value=1, max_value=10, value=1, step=1)
-            replicates = st.number_input("Replicates", min_value=1, max_value=10, value=1, step=1)
+            n_factors = st.number_input("Number of factors", min_value=2, max_value=8, value=3, step=1, key="doe_n_factors")
+            blocks = st.number_input("Blocks", min_value=1, max_value=10, value=1, step=1, key="doe_blocks")
+            replicates = st.number_input("Replicates", min_value=1, max_value=10, value=1, step=1, key="doe_replicates")
         with c2:
-            center_points = st.number_input("Center points per block", min_value=0, max_value=20, value=0, step=1)
-            randomize = st.checkbox("Randomize within block", value=True)
-            seed = st.number_input("Random seed", min_value=1, max_value=999999, value=123, step=1)
+            center_points = st.number_input("Center points per block", min_value=0, max_value=20, value=0, step=1, key="doe_center_points")
+            randomize = st.checkbox("Randomize within block", value=True, key="doe_randomize")
+            seed = st.number_input("Random seed", min_value=1, max_value=999999, value=123, step=1, key="doe_seed")
 
         st.markdown("### Factor definitions")
         factor_names, lows, highs = [], [], []
