@@ -15,6 +15,30 @@ info_box = common.info_box
 
 DEFAULT_DECIMALS = common.DEFAULT_DECIMALS
 
+DOE_SAMPLE_RESPONSE_DATA = """Temp	Speed	pH	Yield
+60	100	5	71.2
+60	100	7	74.8
+60	200	5	78.9
+60	200	7	82.1
+80	100	5	79.4
+80	100	7	83.0
+80	200	5	88.2
+80	200	7	91.5
+70	150	6	84.1
+70	150	6	84.6
+"""
+
+def _load_sample_design():
+    factor_names = ["Temp", "Speed", "pH"]
+    lows = [60.0, 100.0, 5.0]
+    highs = [80.0, 200.0, 7.0]
+    st.session_state["doe_generated_design"] = _build_factorial_design(
+        factor_names, lows, highs, blocks=1, center_points=2, replicates=1, randomize=True, seed=123
+    )
+
+def _load_sample_response_text():
+    st.session_state["doe_response_input"] = DOE_SAMPLE_RESPONSE_DATA
+
 
 
 def _safe_factor_prefix(i):
@@ -71,6 +95,7 @@ def render():
     with tabs[0]:
         st.subheader("Design Builder")
         info_box("Create a basic 2-level full-factorial design with blocks, center points, replicates, and randomization.")
+        st.button("Sample Data", key="sample_doe_design", on_click=_load_sample_design)
 
         c1, c2 = st.columns([1, 1])
         with c1:
@@ -124,7 +149,11 @@ def render():
         st.subheader("Response Analysis")
         info_box("Paste completed DoE data with factor columns and one or more response columns to fit models and generate plots.")
 
-        data_input = st.text_area("Paste completed DoE data with headers", height=240)
+        c_sample, c_text = st.columns([1, 5])
+        with c_sample:
+            st.button("Sample Data", key="sample_doe_response", on_click=_load_sample_response_text)
+        with c_text:
+            data_input = st.text_area("Paste completed DoE data with headers", height=240, key="doe_response_input")
         decimals = st.slider("Decimals", 1, 8, DEFAULT_DECIMALS, key="doe_dec")
 
         if data_input:

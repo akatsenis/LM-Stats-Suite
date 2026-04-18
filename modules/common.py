@@ -804,6 +804,32 @@ def qq_plot(residuals, title="Normal probability plot of residuals"):
     apply_ax_style(ax, title, "Theoretical quantiles", "Ordered residuals", plot_key="Q-Q plot")
     return fig
 
+
+
+def residual_plot_for(plot_key, fitted, residuals, xlabel="Fitted", ylabel="Residuals", title="Residuals vs fitted"):
+    cfg = get_plot_cfg(plot_key)
+    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+    ax.scatter(fitted, residuals, color=cfg.get("marker_color", cfg["primary_color"]), s=cfg["marker_size"], marker=cfg.get("marker_style", "o"))
+    ax.axhline(0, color=cfg.get("line_color", "#111827"), ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
+    apply_ax_style(ax, title, xlabel, ylabel, plot_key=plot_key)
+    return fig
+
+
+def qq_plot_for(plot_key, residuals, title="Normal probability plot of residuals"):
+    cfg = get_plot_cfg(plot_key)
+    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+    stats.probplot(residuals, dist="norm", plot=ax)
+    if len(ax.lines) >= 2:
+        ax.lines[0].set_marker(cfg.get("marker_style", "o"))
+        ax.lines[0].set_linestyle("None")
+        ax.lines[0].set_color(cfg.get("marker_color", cfg["primary_color"]))
+        ax.lines[0].set_markersize(max(3, cfg["marker_size"] / 12))
+        ax.lines[1].set_color(cfg.get("line_color", cfg["secondary_color"]))
+        ax.lines[1].set_linestyle(cfg["aux_line_style"])
+        ax.lines[1].set_linewidth(cfg["aux_line_width"])
+    apply_ax_style(ax, title, "Theoretical quantiles", "Ordered residuals", plot_key=plot_key)
+    return fig
+
 def tol_interval_normal(x, coverage=0.99, confidence=0.95):
     x = np.asarray(x, dtype=float)
     x = x[np.isfinite(x)]
