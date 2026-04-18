@@ -13,11 +13,12 @@ normal_ad = common.normal_ad
 
 app_header = common.app_header
 info_box = common.info_box
+show_figure = common.show_figure
 DEFAULT_DECIMALS = common.DEFAULT_DECIMALS
 
 TOOLS = [
     '01 - Descriptive Statistics',
-    '02 - Regression Intervals',
+    '02 - Regression Analysis',
     '03 - Shelf Life Estimator',
     '04 - Dissolution Comparison (f2)',
     '05 - Two-Sample Tests',
@@ -311,7 +312,7 @@ def render():
                         tables["Summary of Means"] = summary_tbl; tables["Normality Tests"] = normality_tbl
                         fig = _graphical_summary_figure([ref_stats], f"Graphical Summary: {ref_col}", tol_cov, tol_conf, mean_ci_conf)
                         st.markdown("### Graphical Summary")
-                        st.pyplot(fig); figs["Graphical Summary"] = fig_to_png_bytes(fig); plt.close(fig)
+                        show_figure(fig); figs["Graphical Summary"] = fig_to_png_bytes(fig); plt.close(fig)
                         if not is_single and test_col is not None:
                             test = to_numeric(df[test_col]).dropna().to_numpy()
                             if len(test) >= 3:
@@ -337,12 +338,12 @@ def render():
                                     report_table(tbl, cap, decimals)
                                 fig = _graphical_summary_figure([ref_stats, test_stats], f"Graphical Summary: {ref_col} vs {test_col}", tol_cov, tol_conf, mean_ci_conf, shaded_range=shaded, shaded_label=f"p > {alpha:.3f} zone around {ref_col} mean")
                                 st.markdown("### Graphical Summary"); info_box(f"The shaded area is centered on the reference mean and spans the range in which the test mean would remain within the two-sided t-test acceptance zone at α = {alpha:.3f}, using the pooled within-group variance.")
-                                st.pyplot(fig); figs = {"Graphical Summary": fig_to_png_bytes(fig)}; plt.close(fig)
+                                show_figure(fig); figs = {"Graphical Summary": fig_to_png_bytes(fig)}; plt.close(fig)
                                 tables = {"Summary of Means": summary_tbl, "Normality Tests": normality_tbl, "Equal Variances Test": eqvar_tbl, "ANOVA": anova_tbl, "Model Summary (ANOVA)": model_tbl, "Mean / Distribution Comparison": comp_tbl}
                         export_results(prefix="descriptive_statistics", report_title="Statistical Analysis Report", module_name="Descriptive Statistics", statistical_analysis="Descriptive and comparison statistics were calculated for the selected columns, including normality checks and confidence/tolerance intervals.", offer_text="This module summarizes one or two populations and provides a graphical summary plus common comparison tests.", python_tools="pandas, numpy, scipy.stats, statsmodels, matplotlib, openpyxl, reportlab", table_map=tables, figure_map=figs, conclusion="Review the tables and graphical summary to judge center, spread, normality, and possible differences.", decimals=decimals)
 
-    if tool == "02 - Regression Intervals":
-        app_header("📈 App 02 - Regression Intervals", "Linear regression with CI / PI / both, one-sided or two-sided bands, prediction points, and spec-limit crossing.")
+    if tool == "02 - Regression Analysis":
+        app_header("📈 App 02 - Regression Analysis", "Linear regression with CI / PI / both, one-sided or two-sided bands, prediction points, and optional spec-limit crossing.")
         left, right = st.columns([1.45, 1])
         with left:
             c1, c2 = st.columns([1, 5])
@@ -369,12 +370,12 @@ def render():
                 with c9: x_min_txt = st.text_input("X min", value="")
                 with c10:
                     pred_arr = parse_x_values(x_pred_text)
-                    default_xmax = str(max(40.0, float(max(data_df["x"].max(), pred_arr.max()) if len(pred_arr) else float(data_df["x"].max()) * 1.15)))
+                    default_xmax = str(float(max(data_df["x"].max(), pred_arr.max()) if len(pred_arr) else float(data_df["x"].max()) * 1.15))
                     x_max_txt = st.text_input("X max", value=default_xmax)
                 with c11: decimals = st.slider("Decimals", 1, 8, DEFAULT_DECIMALS, key="reg_dec_refined")
                 with c12: reg_alpha = st.number_input("Trend test α", min_value=0.0001, max_value=0.2000, value=0.0500, step=0.0050, format="%.4f", key="reg_alpha_trend")
                 s1, s2, s3, s4 = st.columns([0.9, 1, 1, 1.2])
-                with s1: spec_enabled = st.checkbox("Use spec limit", value=True)
+                with s1: spec_enabled = st.checkbox("Use spec limit", value=False)
                 with s2: spec_value_txt = st.text_input("Spec value", value="3.0", disabled=not spec_enabled)
                 with s3: spec_label = st.text_input("Spec label", value="US", disabled=not spec_enabled)
                 with s4: crossing_on = st.selectbox("Crossing on", ["auto", "fit", "ci_upper", "ci_lower", "pi_upper", "pi_lower"], disabled=not spec_enabled)
@@ -389,7 +390,7 @@ def render():
                 reg_stats = regression_anova_and_coefficients_local(data_df["x"], data_df["y"], alpha=reg_alpha)
                 grid_df = reg_predict_with_intervals(model, grid_x, confidence=confidence, side=side_mode)
                 fig_main, crossing_x = plot_regression_advanced(data_df, model, grid_df, confidence, interval_mode, side_mode, plot_title, xlabel, ylabel, point_label, y_suffix, spec_enabled, parse_optional_float(spec_value_txt) if spec_enabled else None, spec_label, crossing_on)
-                st.pyplot(fig_main)
+                show_figure(fig_main)
                 summary_tbl = pd.DataFrame({"Intercept": [model["intercept"]], "Slope": [model["slope"]], "R²": [model["r2"]], "Residual SD (s)": [model["s"]], "Degrees of Freedom": [model["df"]]})
                 if crossing_x is not None: summary_tbl["Crossing Point"] = [crossing_x]
                 report_table(summary_tbl, "Regression model summary", decimals)
@@ -405,10 +406,10 @@ def render():
                 final_table_df.columns = ["X Value", "Actual Y", "Fitted Y", "Lower CI", "Upper CI", "Lower PI", "Upper PI"]
                 report_table(final_table_df, "Table 2: Fitted values and intervals", decimals)
                 fig_res = residual_plot(model["fitted"], model["resid"], xlabel="Fitted values", ylabel="Residuals", title="Residuals vs fitted")
-                st.pyplot(fig_res)
+                show_figure(fig_res)
                 fig_qq = qq_plot(model["resid"], title="Normal probability plot of regression residuals")
-                st.pyplot(fig_qq)
-                export_results(prefix="regression_intervals_refined", report_title="Statistical Analysis Report", module_name="Regression Intervals", statistical_analysis="A simple linear regression model was fitted and confidence/prediction intervals were calculated. A slope significance test and crossing against a specification limit were also supported.", offer_text="This module evaluates linear trends, predictions, uncertainty bands, and optional spec-limit crossing.", python_tools="pandas, numpy, scipy.stats, matplotlib, openpyxl, reportlab", table_map={"Regression Model Summary": summary_tbl, "Regression Coefficients": reg_stats["coefficients"], "Regression ANOVA": reg_stats["anova"], "Parsed Input Data": data_df.rename(columns={"x": "X Value", "y": "Actual Y"}), "Fitted Values and Intervals": final_table_df}, figure_map={"Regression plot": fig_to_png_bytes(fig_main), "Residuals vs fitted": fig_to_png_bytes(fig_res), "Normal probability plot": fig_to_png_bytes(fig_qq)}, conclusion="Review the fitted line, interval bands, regression ANOVA, and residual diagnostics before interpreting the trend.", decimals=decimals)
+                show_figure(fig_qq)
+                export_results(prefix="regression_intervals_refined", report_title="Statistical Analysis Report", module_name="Regression Analysis", statistical_analysis="A simple linear regression model was fitted and confidence/prediction intervals were calculated. A slope significance test and crossing against a specification limit were also supported.", offer_text="This module evaluates linear trends, predictions, uncertainty bands, and optional spec-limit crossing.", python_tools="pandas, numpy, scipy.stats, matplotlib, openpyxl, reportlab", table_map={"Regression Model Summary": summary_tbl, "Regression Coefficients": reg_stats["coefficients"], "Regression ANOVA": reg_stats["anova"], "Parsed Input Data": data_df.rename(columns={"x": "X Value", "y": "Actual Y"}), "Fitted Values and Intervals": final_table_df}, figure_map={"Regression plot": fig_to_png_bytes(fig_main), "Residuals vs fitted": fig_to_png_bytes(fig_res), "Normal probability plot": fig_to_png_bytes(fig_qq)}, conclusion="Review the fitted line, interval bands, regression ANOVA, and residual diagnostics before interpreting the trend.", decimals=decimals)
             except Exception as e:
                 st.error(str(e))
 
@@ -485,7 +486,7 @@ def render():
                 if x_max <= x_min: raise ValueError("X max must be greater than X min.")
                 model = fit_linear(data_df["x"], data_df["y"]); grid_x = np.linspace(x_min, x_max, 600); grid_df = sl_predict_local(model, grid_x, confidence=confidence, one_sided=True)
                 fig_main, shelf_life, bound_col = sl_plot_local(data_df, grid_df, spec_side, spec_limit, shelf_basis, show_ci_band, show_pi_band, plot_title, xlabel, ylabel, point_label, y_suffix, spec_label)
-                st.pyplot(fig_main)
+                show_figure(fig_main)
                 summary_tbl = pd.DataFrame({"Intercept": [model["intercept"]], "Slope": [model["slope"]], "R²": [model["r2"]], "Residual SD (s)": [model["s"]], "Degrees of Freedom": [model["df"]], "Shelf-life basis": [bound_col], "Confidence": [f"{confidence:.0%} one-sided"], "Estimated Shelf Life": [np.nan if shelf_life is None else shelf_life]})
                 report_table(summary_tbl, "Shelf-life estimation summary", decimals)
                 report_table(data_df.rename(columns={"x": x_label_from_header, "y": y_label_from_header}), "Table 1: Parsed data", decimals)
@@ -497,7 +498,7 @@ def render():
                 final_table_df.columns = [xlabel, f"Actual {ylabel}", f"Fitted {ylabel}", "Lower CI", "Upper CI", "Lower PI", "Upper PI"]
                 report_table(final_table_df, "Table 2: Fitted values and one-sided bounds", decimals)
                 fig_res = residual_plot(model["fitted"], model["resid"], xlabel="Fitted values", ylabel="Residuals", title="Residuals vs fitted")
-                st.pyplot(fig_res); fig_qq = qq_plot(model["resid"], title="Normal probability plot of stability residuals"); st.pyplot(fig_qq)
+                show_figure(fig_res); fig_qq = qq_plot(model["resid"], title="Normal probability plot of stability residuals"); show_figure(fig_qq)
                 export_results(prefix="shelf_life_refined", report_title="Statistical Analysis Report", module_name="Shelf Life Estimator", statistical_analysis="A linear regression model was fitted to stability data and one-sided confidence/prediction bounds were used to estimate shelf life.", offer_text="This module projects future response and estimates a conservative shelf-life crossing against a selected limit.", python_tools="pandas, numpy, scipy.stats, matplotlib, openpyxl, reportlab", table_map={"Shelf-life Summary": summary_tbl, "Parsed Data": data_df.rename(columns={"x": x_label_from_header, "y": y_label_from_header}), "Fitted Values and One-Sided Bounds": final_table_df}, figure_map={"Shelf-life plot": fig_to_png_bytes(fig_main), "Residuals vs fitted": fig_to_png_bytes(fig_res), "Normal probability plot": fig_to_png_bytes(fig_qq)}, conclusion="Review the fit, one-sided bound selected, and residual diagnostics before finalizing shelf life.", decimals=decimals)
             except Exception as e:
                 st.error(str(e))
@@ -554,13 +555,13 @@ def render():
                 t1, t2, t3 = st.tabs(["Summary", "FDA criteria & selected points", "Bootstrap"])
                 with t1:
                     report_table(merged.rename(columns={"n_units_ref": "Ref. Units (N)", "mean_ref": "Ref. Mean", "sd_ref": "Ref. SD", "cv_pct_ref": "Ref. CV (%)", "n_units_test": "Test Units (N)", "mean_test": "Test Mean", "sd_test": "Test SD", "cv_pct_test": "Test CV (%)"}), "Profile summary table", decimals)
-                    report_table(assess_tbl, "f2 assessment", decimals); st.pyplot(fig_main)
+                    report_table(assess_tbl, "f2 assessment", decimals); show_figure(fig_main)
                 with t2:
                     report_table(fda_tbl, "FDA-style criteria check", decimals); report_table(fda_detail_tbl, "FDA-style criteria details", decimals); report_table(all_points_tbl, "Common timepoints and whether they were used in f2", decimals); report_table(selected, "Selected points used for f2 calculation", decimals)
                 with t3:
                     if bootstrap_on and boot_tbl is not None:
                         report_table(boot_tbl, "Bootstrap f2 confidence intervals", decimals)
-                        for _, fig in boot_figs.items(): st.pyplot(fig)
+                        for _, fig in boot_figs.items(): show_figure(fig)
                     else:
                         st.info("Enable 'Bootstrap f2 CI' above to calculate percentile and/or BCa confidence intervals and show the extra bootstrap graph.")
                 table_map = {"Profile Summary": merged, "f2 Assessment": assess_tbl, "FDA Criteria Check": fda_tbl, "FDA Criteria Details": fda_detail_tbl, "Selected Points Used for f2": selected}
@@ -605,13 +606,13 @@ def render():
                         except Exception: w_stat, w_p = np.nan, np.nan
                         tests = pd.DataFrame({"Test": ["AD test of paired differences", "Paired t-test", "Wilcoxon signed-rank"], "Statistic": [ad_d, t_stat, w_stat], "P-Value": [p_d, t_p, w_p], "Conclusion": ["Normal differences" if nd else "Non-normal differences", "Significant" if t_p < alpha else "Not significant", "Significant" if (pd.notna(w_p) and w_p < alpha) else "Not significant"]})
                     report_table(tests, f"Two-sample test results (α = {alpha})", decimals)
-                    fig_box, ax = plt.subplots(figsize=(FIG_W, FIG_H)); ax.boxplot([x, y], tick_labels=[sample_a, sample_b], patch_artist=True); apply_ax_style(ax, "Two-sample comparison", "Sample", "Value", plot_key="Two-sample box plot"); st.pyplot(fig_box)
+                    fig_box, ax = plt.subplots(figsize=(FIG_W, FIG_H)); ax.boxplot([x, y], tick_labels=[sample_a, sample_b], patch_artist=True); apply_ax_style(ax, "Two-sample comparison", "Sample", "Value", plot_key="Two-sample box plot"); show_figure(fig_box)
                     fig_dens, ax2 = plt.subplots(figsize=(FIG_W, FIG_H))
                     if len(np.unique(x)) > 1:
                         xs = np.linspace(np.min(x), np.max(x), 200); ax2.plot(xs, gaussian_kde(x)(xs), color=PRIMARY_COLOR, lw=2, label=sample_a)
                     if len(np.unique(y)) > 1:
                         ys = np.linspace(np.min(y), np.max(y), 200); ax2.plot(ys, gaussian_kde(y)(ys), color=SECONDARY_COLOR, lw=2, label=sample_b)
-                    apply_ax_style(ax2, "Density comparison", "Value", "Density", legend=True, plot_key="Two-sample density plot"); st.pyplot(fig_dens)
+                    apply_ax_style(ax2, "Density comparison", "Value", "Density", legend=True, plot_key="Two-sample density plot"); show_figure(fig_dens)
                     export_results(prefix="two_sample_tests", report_title="Statistical Analysis Report", module_name="Two-Sample Tests", statistical_analysis="Two selected sample columns were compared using normality checks and either independent- or paired-sample tests.", offer_text="This module compares two populations for differences in means or distributions.", python_tools="pandas, numpy, scipy.stats, statsmodels, matplotlib, openpyxl, reportlab", table_map={"Summary": desc, "Tests": tests}, figure_map={"Box plot": fig_to_png_bytes(fig_box), "Density plot": fig_to_png_bytes(fig_dens)}, conclusion="Review both parametric and non-parametric results when deciding whether the two samples differ.", decimals=decimals)
             except Exception as e:
                 st.error(str(e))
@@ -678,11 +679,11 @@ def render():
                         means = sub.groupby(factors[0])[response].mean().reset_index()
                         ax.plot(means[factors[0]].astype(str), means[response], marker='o', lw=2, label=f"{factors[1]} = {lvl}")
                     apply_ax_style(ax, "Interaction plot", factors[0], response, legend=True, plot_key="Two-way ANOVA interaction")
-                    st.pyplot(fig_inter)
+                    show_figure(fig_inter)
                 else:
                     fig_inter = None
                 fig_res = residual_plot(model.fittedvalues, model.resid, xlabel="Fitted values", ylabel="Residuals", title="Residuals vs fitted")
-                st.pyplot(fig_res); fig_qq = qq_plot(model.resid, title="Normal probability plot of model residuals"); st.pyplot(fig_qq)
+                show_figure(fig_res); fig_qq = qq_plot(model.resid, title="Normal probability plot of model residuals"); show_figure(fig_qq)
                 figure_map = {"Residuals vs fitted": fig_to_png_bytes(fig_res), "Normal probability plot": fig_to_png_bytes(fig_qq)}
                 if fig_inter is not None: figure_map["Interaction plot"] = fig_to_png_bytes(fig_inter)
                 table_map = {"Model Summary": summary_tbl, f"{model_kind} Table": anova_tbl, "Coefficients": coef_tbl}
@@ -692,7 +693,7 @@ def render():
                 st.error(str(e))
 
     if tool == "07 - Tolerance & Confidence Intervals":
-        app_header("🎯 App 07 - Tolerance & Confidence Intervals", "Generate confidence intervals and normal-theory tolerance intervals for one or two samples.")
+        app_header("🎯 App 07 - Tolerance & Confidence Intervals", "Summarize central tendency, normal-theory confidence intervals, tolerance intervals, and supporting distribution diagnostics.")
         c1, c2 = st.columns([1, 5])
         with c1: st.button("Sample Data", key="sample_ti", on_click=load_sample_text, args=("ti_input", "ti"))
         with c2: data_input = st.text_area("Paste one table with headers", height=240, key="ti_input")
@@ -703,37 +704,168 @@ def render():
         if data_input:
             try:
                 df = parse_pasted_table(data_input, header=True); num_cols = get_numeric_columns(df)
-                if not num_cols: st.error("No numeric columns were found.")
+                if not num_cols:
+                    st.error("No numeric columns were found.")
                 else:
                     c1, c2 = st.columns(2)
                     with c1: sample_a = st.selectbox("Sample A", num_cols, index=0)
                     with c2: sample_b = st.selectbox("Sample B (optional)", ["(None)"] + [c for c in num_cols if c != sample_a], index=0)
                     alpha = 1 - confidence / 100; p = coverage / 100; conf = confidence / 100
+
                     def mean_ci(a):
-                        n = len(a); m = np.mean(a); s = np.std(a, ddof=1); se = s / np.sqrt(n); tcrit = t.ppf(1 - alpha / 2, n - 1); return m, s, m - tcrit * se, m + tcrit * se
-                    x = to_numeric(df[sample_a]).dropna().to_numpy(); summaries = []
-                    mx, sx, lx, ux = mean_ci(x); _, tlx, tux = tolerance_interval_normal(x, p=p, conf=conf, two_sided=True)
-                    summaries.append({"Sample": sample_a, "N": len(x), "Mean": mx, "Std. Deviation": sx, f"{confidence}% CI Lower": lx, f"{confidence}% CI Upper": ux, f"{coverage}%/{confidence}% TI Lower": tlx, f"{coverage}%/{confidence}% TI Upper": tux})
-                    diff_tbl = None
+                        n = len(a); m = np.mean(a); s = np.std(a, ddof=1); se = s / np.sqrt(n); tcrit = t.ppf(1 - alpha / 2, n - 1)
+                        return m, s, m - tcrit * se, m + tcrit * se
+
+                    sample_arrays = []
+                    x = to_numeric(df[sample_a]).dropna().to_numpy()
+                    if len(x) < 2:
+                        raise ValueError("Sample A must contain at least two numeric values.")
+                    sample_arrays.append((sample_a, x))
+                    y = None
                     if sample_b != "(None)":
                         if paired:
                             pair_df = df[[sample_a, sample_b]].copy().apply(to_numeric).dropna(); x = pair_df[sample_a].to_numpy(); y = pair_df[sample_b].to_numpy()
+                            if len(x) < 2:
+                                raise ValueError("Paired analysis requires at least two complete pairs.")
+                            sample_arrays = [(sample_a, x), (sample_b, y)]
                         else:
                             y = to_numeric(df[sample_b]).dropna().to_numpy()
-                        my, sy, ly, uy = mean_ci(y); _, tly, tuy = tolerance_interval_normal(y, p=p, conf=conf, two_sided=True)
-                        summaries.append({"Sample": sample_b, "N": len(y), "Mean": my, "Std. Deviation": sy, f"{confidence}% CI Lower": ly, f"{confidence}% CI Upper": uy, f"{coverage}%/{confidence}% TI Lower": tly, f"{coverage}%/{confidence}% TI Upper": tuy})
+                            if len(y) < 2:
+                                raise ValueError("Sample B must contain at least two numeric values.")
+                            sample_arrays.append((sample_b, y))
+
+                    stats_objs = []
+                    interval_rows = []
+                    detail_rows = []
+                    normality_rows = []
+                    for label, arr in sample_arrays:
+                        s = _one_sample_summary(arr, label, ci_conf=conf, tol_p=p, tol_confidence=conf)
+                        s["raw"] = arr
+                        stats_objs.append(s)
+                        interval_rows.append({
+                            "Sample": label,
+                            "N": s["n"],
+                            "Mean": s["mean"],
+                            "Std. Deviation": s["sd"],
+                            f"{confidence}% CI Lower": s["ci_lower"],
+                            f"{confidence}% CI Upper": s["ci_upper"],
+                            f"{coverage}%/{confidence}% TI Lower": s["tol_lower"],
+                            f"{coverage}%/{confidence}% TI Upper": s["tol_upper"],
+                        })
+                        detail_rows.append({
+                            "Sample": label,
+                            "Minimum": s["min"],
+                            "Q1": s["q1"],
+                            "Median": s["median"],
+                            "Q3": s["q3"],
+                            "Maximum": s["max"],
+                            "Range": s["max"] - s["min"],
+                        })
+                        normality_rows.append({
+                            "Sample": label,
+                            "Anderson-Darling Statistic": s["ad_stat"],
+                            "Anderson-Darling P-Value": s["ad_p"],
+                            "Shapiro-Wilk Statistic": s["shapiro_stat"],
+                            "Shapiro-Wilk P-Value": s["shapiro_p"],
+                            "Comment": "No strong normality concern" if ((pd.notna(s["ad_p"]) and s["ad_p"] >= alpha) or (pd.notna(s["shapiro_p"]) and s["shapiro_p"] >= alpha)) else "Check normality visually and analytically",
+                        })
+
+                    interval_tbl = pd.DataFrame(interval_rows)
+                    detail_tbl = pd.DataFrame(detail_rows)
+                    normality_tbl = pd.DataFrame(normality_rows)
+                    report_table(detail_tbl, "Descriptive summary", decimals)
+                    report_table(interval_tbl, "Confidence and tolerance intervals", decimals)
+                    report_table(normality_tbl, "Normality review", decimals)
+                    table_map = {
+                        "Descriptive Summary": detail_tbl,
+                        "Confidence and Tolerance Intervals": interval_tbl,
+                        "Normality Review": normality_tbl,
+                    }
+
+                    diff_tbl = None
+                    if sample_b != "(None)":
                         if paired:
-                            d = x - y; md, sd, ld, ud = mean_ci(d); diff_tbl = pd.DataFrame({"Comparison": [f"{sample_a} - {sample_b}"], "Mean Difference": [md], f"{confidence}% CI Lower": [ld], f"{confidence}% CI Upper": [ud]})
+                            d = x - y; md, sd, ld, ud = mean_ci(d)
+                            diff_tbl = pd.DataFrame({
+                                "Comparison": [f"{sample_a} - {sample_b}"],
+                                "Mean Difference": [md],
+                                "Std. Deviation of Differences": [sd],
+                                f"{confidence}% CI Lower": [ld],
+                                f"{confidence}% CI Upper": [ud],
+                            })
                         else:
-                            nx, ny = len(x), len(y); dx = x.mean() - y.mean(); sx2, sy2 = x.var(ddof=1), y.var(ddof=1); se = np.sqrt(sx2 / nx + sy2 / ny); dfw = (sx2 / nx + sy2 / ny) ** 2 / (((sx2 / nx) ** 2) / (nx - 1) + ((sy2 / ny) ** 2) / (ny - 1)); tcrit = t.ppf(1 - alpha / 2, dfw); diff_tbl = pd.DataFrame({"Comparison": [f"{sample_a} - {sample_b}"], "Mean Difference": [dx], f"{confidence}% CI Lower": [dx - tcrit * se], f"{confidence}% CI Upper": [dx + tcrit * se]})
-                    out = pd.DataFrame(summaries)
-                    report_table(out, "Confidence and tolerance intervals", decimals)
-                    table_map = {"Intervals": out}
-                    if diff_tbl is not None: report_table(diff_tbl, "Confidence interval for mean difference", decimals); table_map["Mean Difference CI"] = diff_tbl
-                    data_list = [to_numeric(df[sample_a]).dropna().to_numpy()] if sample_b == "(None)" else ([x, y] if paired else [to_numeric(df[sample_a]).dropna().to_numpy(), to_numeric(df[sample_b]).dropna().to_numpy()])
-                    labels = [sample_a] if sample_b == "(None)" else [sample_a, sample_b]
-                    fig_box, ax = plt.subplots(figsize=(FIG_W, FIG_H)); ax.boxplot(data_list, tick_labels=labels, patch_artist=True); apply_ax_style(ax, "Sample distributions", "Sample", "Value", plot_key="Tolerance/CI box plot"); st.pyplot(fig_box)
-                    export_results(prefix="tolerance_confidence_intervals", report_title="Statistical Analysis Report", module_name="Tolerance & Confidence Intervals", statistical_analysis="Confidence intervals for means and normal-theory tolerance intervals were calculated for the selected samples.", offer_text="This module summarizes uncertainty around the mean and expected population coverage ranges.", python_tools="pandas, numpy, scipy.stats, matplotlib, openpyxl, reportlab", table_map=table_map, figure_map={"Box plot": fig_to_png_bytes(fig_box)}, conclusion="Review the confidence and tolerance intervals together when judging a sample's center and expected spread.", decimals=decimals)
+                            nx, ny = len(x), len(y); dx = x.mean() - y.mean(); sx2, sy2 = x.var(ddof=1), y.var(ddof=1)
+                            se = np.sqrt(sx2 / nx + sy2 / ny)
+                            dfw = (sx2 / nx + sy2 / ny) ** 2 / (((sx2 / nx) ** 2) / (nx - 1) + ((sy2 / ny) ** 2) / (ny - 1))
+                            tcrit = t.ppf(1 - alpha / 2, dfw)
+                            diff_tbl = pd.DataFrame({
+                                "Comparison": [f"{sample_a} - {sample_b}"],
+                                "Mean Difference": [dx],
+                                f"{confidence}% CI Lower": [dx - tcrit * se],
+                                f"{confidence}% CI Upper": [dx + tcrit * se],
+                            })
+                        report_table(diff_tbl, "Confidence interval for mean difference", decimals)
+                        table_map["Mean Difference CI"] = diff_tbl
+
+                    labels = [s["label"] for s in stats_objs]
+                    data_list = [s["raw"] for s in stats_objs]
+
+                    fig_interval, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+                    colors = [PRIMARY_COLOR, SECONDARY_COLOR, TERTIARY_COLOR]
+                    for i, s in enumerate(stats_objs, start=1):
+                        col = colors[(i - 1) % len(colors)]
+                        ax.plot([s["tol_lower"], s["tol_upper"]], [i, i], color=col, alpha=0.25, lw=8, solid_capstyle="round")
+                        ax.plot([s["ci_lower"], s["ci_upper"]], [i, i], color=col, lw=4, solid_capstyle="round")
+                        ax.scatter([s["mean"]], [i], color=col, s=80, zorder=3)
+                    ax.set_yticks(range(1, len(stats_objs) + 1))
+                    ax.set_yticklabels(labels)
+                    apply_ax_style(ax, "Mean with confidence and tolerance intervals", "Value", "Sample", plot_key="Tolerance/CI box plot")
+                    show_figure(fig_interval, "Mean with confidence and tolerance intervals")
+
+                    fig_box, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+                    ax.boxplot(data_list, tick_labels=labels, patch_artist=True)
+                    apply_ax_style(ax, "Sample distributions", "Sample", "Value", plot_key="Tolerance/CI box plot")
+                    show_figure(fig_box, "Sample distributions")
+
+                    fig_hist, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+                    bins = max(5, min(12, int(np.sqrt(max(len(arr) for arr in data_list))) + 2))
+                    for i, arr in enumerate(data_list):
+                        col = colors[i % len(colors)]
+                        ax.hist(arr, bins=bins, density=True, alpha=0.20, color=col, label=f"{labels[i]} histogram")
+                        if len(np.unique(arr)) > 1:
+                            xs = np.linspace(np.min(arr), np.max(arr), 240)
+                            ax.plot(xs, gaussian_kde(arr)(xs), color=col, lw=2, label=f"{labels[i]} density")
+                    apply_ax_style(ax, "Histogram and density view", "Value", "Density", legend=True, plot_key="Tolerance/CI box plot")
+                    show_figure(fig_hist, "Histogram and density view")
+
+                    qq_w = max(FIG_W * len(stats_objs), FIG_W * 1.2)
+                    fig_qq, axes = plt.subplots(1, len(stats_objs), figsize=(qq_w, FIG_H))
+                    axes = np.atleast_1d(axes)
+                    for ax_i, s in zip(axes, stats_objs):
+                        stats.probplot(s["raw"], dist="norm", plot=ax_i)
+                        apply_ax_style(ax_i, f"Normal probability plot: {s['label']}", "Theoretical quantiles", "Ordered values", plot_key="Q-Q plot")
+                    fig_qq.tight_layout(pad=1.0)
+                    show_figure(fig_qq, "Normal probability plots")
+
+                    figure_map = {
+                        "Mean with confidence and tolerance intervals": fig_to_png_bytes(fig_interval),
+                        "Box plot": fig_to_png_bytes(fig_box),
+                        "Histogram and density view": fig_to_png_bytes(fig_hist),
+                        "Normal probability plots": fig_to_png_bytes(fig_qq),
+                    }
+
+                    export_results(
+                        prefix="tolerance_confidence_intervals",
+                        report_title="Statistical Analysis Report",
+                        module_name="Tolerance & Confidence Intervals",
+                        statistical_analysis="Confidence intervals for means and normal-theory tolerance intervals were calculated for the selected samples, with added descriptive summaries, normality review, and supporting graphics.",
+                        offer_text="This module summarizes uncertainty around the mean, expected population coverage, and the shape of the observed data.",
+                        python_tools="pandas, numpy, scipy.stats, matplotlib, openpyxl, reportlab",
+                        table_map=table_map,
+                        figure_map=figure_map,
+                        conclusion="Review the descriptive summary, interval estimates, and distribution graphics together before using the intervals for decisions.",
+                        decimals=decimals,
+                    )
             except Exception as e:
                 st.error(str(e))
 
@@ -778,11 +910,11 @@ def render():
                         for _, row in scores_df.iterrows(): ax.text(row["PC1"], row["PC2"], str(row["Label"]), fontsize=8)
                     ax.axhline(0, color="#64748b", lw=score_cfg["aux_line_width"], ls=score_cfg["aux_line_style"]); ax.axvline(0, color="#64748b", lw=score_cfg["aux_line_width"], ls=score_cfg["aux_line_style"])
                     apply_ax_style(ax, "PCA score plot", f"PC1 ({exp[0]:.1f}% var)", f"PC2 ({exp[1]:.1f}% var)", legend=(group_col != "(None)"), plot_key="PCA score plot")
-                    st.pyplot(fig_scores)
+                    show_figure(fig_scores)
                     load_cfg = common.safe_get_plot_cfg("PCA loading plot"); fig_load, ax2 = plt.subplots(figsize=(load_cfg["fig_w"], load_cfg["fig_h"])); ax2.axhline(0, color="#64748b", lw=load_cfg["aux_line_width"], ls=load_cfg["aux_line_style"]); ax2.axvline(0, color="#64748b", lw=load_cfg["aux_line_width"], ls=load_cfg["aux_line_style"])
                     for i, var in enumerate(vars_sel):
                         ax2.arrow(0, 0, loadings[i, 0], loadings[i, 1], head_width=load_cfg["arrow_size"], length_includes_head=True, color=load_cfg["primary_color"], lw=load_cfg["line_width"], ls=load_cfg["line_style"]); ax2.text(loadings[i, 0], loadings[i, 1], var)
-                    lim = max(1.1, np.max(np.abs(loadings)) * 1.2); ax2.set_xlim(-lim, lim); ax2.set_ylim(-lim, lim); apply_ax_style(ax2, "PCA loading plot", "PC1", "PC2", plot_key="PCA loading plot"); st.pyplot(fig_load)
+                    lim = max(1.1, np.max(np.abs(loadings)) * 1.2); ax2.set_xlim(-lim, lim); ax2.set_ylim(-lim, lim); apply_ax_style(ax2, "PCA loading plot", "PC1", "PC2", plot_key="PCA loading plot"); show_figure(fig_load)
                     export_results(prefix="pca_analysis", report_title="Statistical Analysis Report", module_name="PCA Analysis", statistical_analysis="PCA was performed on selected numeric variables after standardization. Score and loading plots were generated, with optional labels, grouping, and confidence ellipses.", offer_text="This module reduces dimensionality and helps visualize clustering, separation, and variable influence patterns.", python_tools="pandas, numpy, sklearn PCA, matplotlib, openpyxl, reportlab", table_map={"Explained Variance": eig, "Loadings": load_df, "Scores": scores_df.reset_index(drop=True)}, figure_map={"PCA score plot": fig_to_png_bytes(fig_scores), "PCA loading plot": fig_to_png_bytes(fig_load)}, conclusion="Use the score plot, loadings, and optional ellipses together to interpret grouping and variable contribution.", decimals=decimals)
             except Exception as e:
                 st.error(str(e))

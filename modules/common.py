@@ -449,8 +449,23 @@ def plot_regression_advanced(
     apply_ax_style(ax, title, xlabel, ylabel, legend=True, plot_key="Regression Analysis")
     return fig, crossing_x
 
+def _auto_explanation_text(label, kind="table"):
+    label = str(label or "").strip()
+    if not label:
+        return f"The {kind} below summarizes the current analysis output."
+    lower = label.rstrip(":.")
+    prefix = "The table below" if kind == "table" else "The figure below"
+    return f"{prefix} presents {lower.lower()} and is intended to support interpretation of the current analysis."
+
+
+def show_figure(fig, caption="", explanation=None):
+    info_box(explanation or _auto_explanation_text(caption or "current graph", kind="figure"))
+    st.pyplot(fig)
+
+
 def report_table(df, caption="", decimals=None):
     decimals = DEFAULT_DECIMALS if decimals is None else decimals
+    info_box(_auto_explanation_text(caption or "current table", kind="table"))
     styled = df.style.hide(axis="index").set_caption(caption).set_table_styles([
         {"selector": "caption", "props": [("text-align", "left"), ("font-size", "1rem"), ("font-weight", "700"), ("margin-bottom", "0.55rem")]},
         {"selector": "thead th", "props": [("border-top", "2px solid #111827"), ("border-bottom", "1px solid #111827"), ("padding", "8px 12px"), ("text-align", "center"), ("background-color", "#f8fafc")]},
