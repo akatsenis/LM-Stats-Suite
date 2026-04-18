@@ -17,7 +17,7 @@ DEFAULT_DECIMALS = common.DEFAULT_DECIMALS
 
 TOOLS = [
     '01 - Descriptive Statistics',
-    '02 - Regression Intervals',
+    '02 - Regression Analysis',
     '03 - Shelf Life Estimator',
     '04 - Dissolution Comparison (f2)',
     '05 - Two-Sample Tests',
@@ -341,8 +341,8 @@ def render():
                                 tables = {"Summary of Means": summary_tbl, "Normality Tests": normality_tbl, "Equal Variances Test": eqvar_tbl, "ANOVA": anova_tbl, "Model Summary (ANOVA)": model_tbl, "Mean / Distribution Comparison": comp_tbl}
                         export_results(prefix="descriptive_statistics", report_title="Statistical Analysis Report", module_name="Descriptive Statistics", statistical_analysis="Descriptive and comparison statistics were calculated for the selected columns, including normality checks and confidence/tolerance intervals.", offer_text="This module summarizes one or two populations and provides a graphical summary plus common comparison tests.", python_tools="pandas, numpy, scipy.stats, statsmodels, matplotlib, openpyxl, reportlab", table_map=tables, figure_map=figs, conclusion="Review the tables and graphical summary to judge center, spread, normality, and possible differences.", decimals=decimals)
 
-    if tool == "02 - Regression Intervals":
-        app_header("📈 App 02 - Regression Intervals", "Linear regression with CI / PI / both, one-sided or two-sided bands, prediction points, and spec-limit crossing.")
+    if tool == "02 - Regression Analysis":
+        app_header("📈 App 02 - Regression Analysis", "Linear regression with CI / PI / both, one-sided or two-sided bands, prediction points, and spec-limit crossing.")
         left, right = st.columns([1.45, 1])
         with left:
             c1, c2 = st.columns([1, 5])
@@ -408,7 +408,7 @@ def render():
                 st.pyplot(fig_res)
                 fig_qq = qq_plot(model["resid"], title="Normal probability plot of regression residuals")
                 st.pyplot(fig_qq)
-                export_results(prefix="regression_intervals_refined", report_title="Statistical Analysis Report", module_name="Regression Intervals", statistical_analysis="A simple linear regression model was fitted and confidence/prediction intervals were calculated. A slope significance test and crossing against a specification limit were also supported.", offer_text="This module evaluates linear trends, predictions, uncertainty bands, and optional spec-limit crossing.", python_tools="pandas, numpy, scipy.stats, matplotlib, openpyxl, reportlab", table_map={"Regression Model Summary": summary_tbl, "Regression Coefficients": reg_stats["coefficients"], "Regression ANOVA": reg_stats["anova"], "Parsed Input Data": data_df.rename(columns={"x": "X Value", "y": "Actual Y"}), "Fitted Values and Intervals": final_table_df}, figure_map={"Regression plot": fig_to_png_bytes(fig_main), "Residuals vs fitted": fig_to_png_bytes(fig_res), "Normal probability plot": fig_to_png_bytes(fig_qq)}, conclusion="Review the fitted line, interval bands, regression ANOVA, and residual diagnostics before interpreting the trend.", decimals=decimals)
+                export_results(prefix="regression_intervals_refined", report_title="Statistical Analysis Report", module_name="Regression Analysis", statistical_analysis="A simple linear regression model was fitted and confidence/prediction intervals were calculated. A slope significance test and crossing against a specification limit were also supported.", offer_text="This module evaluates linear trends, predictions, uncertainty bands, and optional spec-limit crossing.", python_tools="pandas, numpy, scipy.stats, matplotlib, openpyxl, reportlab", table_map={"Regression Model Summary": summary_tbl, "Regression Coefficients": reg_stats["coefficients"], "Regression ANOVA": reg_stats["anova"], "Parsed Input Data": data_df.rename(columns={"x": "X Value", "y": "Actual Y"}), "Fitted Values and Intervals": final_table_df}, figure_map={"Regression plot": fig_to_png_bytes(fig_main), "Residuals vs fitted": fig_to_png_bytes(fig_res), "Normal probability plot": fig_to_png_bytes(fig_qq)}, conclusion="Review the fitted line, interval bands, regression ANOVA, and residual diagnostics before interpreting the trend.", decimals=decimals)
             except Exception as e:
                 st.error(str(e))
 
