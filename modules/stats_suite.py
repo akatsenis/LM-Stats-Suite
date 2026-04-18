@@ -787,7 +787,7 @@ def render():
                         decimals=decimals,
                     )
             except Exception as e:
-                st.error(str(e))
+            st.error(str(e))
     
     
 
