@@ -1032,7 +1032,7 @@ def dis_plot_bootstrap_f2_distribution(boot_vals, observed_f2, ci_low=None, ci_h
     text_kw = dict(rotation=90, va="top", fontsize=10, clip_on=False)
     ax.text(mean_boot, y_top * 0.50, f"Mean = {mean_boot:.2f}", ha="right", color=cfg["primary_color"], **text_kw)
     if ci_low is not None:
-        ax.text(ci_low, y_top * 0.50, f"Lower CI = {ci_low:.2f}", ha="right", color=cfg["tertiary_color"], **text_kw)
+        ax.text(ci_low - 0.2 * ci_low , y_top * 0.50, f"Lower CI = {ci_low:.2f}", ha="right", color=cfg["tertiary_color"], **text_kw)
     if ci_high is not None:
         ax.text(ci_high, y_top * 0.50, f"Upper CI = {ci_high:.2f}", ha="left", color=cfg["tertiary_color"], **text_kw)
     return fig
