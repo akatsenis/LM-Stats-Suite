@@ -89,6 +89,27 @@ def regression_anova_and_coefficients_local(x, y, alpha=0.05):
 
 TOOLS = ['01 - Descriptive Statistics', '02 - Regression Intervals', '03 - Shelf Life Estimator', '04 - Dissolution Comparison (f2)', '05 - Two-Sample Tests', '06 - Two-Way ANOVA', '07 - Tolerance & Confidence Intervals', '08 - PCA Analysis']
 
+SAMPLE_DATA = {
+    "desc": "LotA	LotB\n98.2	97.5\n99.1	98.1\n100.4	99.0\n97.8	98.4\n98.9	97.9\n99.5	98.8\n100.1	99.2\n98.7	98.0\n",
+    "reg": "Month	Assay\n0	100.0\n3	99.1\n6	98.5\n9	97.8\n12	97.2\n18	96.0\n24	94.8\n",
+    "shelf": "Month	Assay\n0	100.0\n3	99.4\n6	98.8\n9	98.1\n12	97.6\n18	96.3\n24	95.1\n36	92.4\n",
+    "f2_ref": "Time	U1	U2	U3	U4	U5	U6	U7	U8	U9	U10	U11	U12\n5	22	24	23	25	21	24	23	22	24	25	23	22\n10	45	47	46	48	44	46	45	47	46	48	45	46\n15	63	65	64	66	62	64	63	65	64	66	63	64\n20	78	80	79	81	77	79	78	80	79	81	78	79\n30	91	92	93	92	90	91	92	93	92	91	92	91\n45	97	98	98	99	97	98	98	99	98	98	97	98\n",
+    "f2_test": "Time	U1	U2	U3	U4	U5	U6	U7	U8	U9	U10	U11	U12\n5	20	22	21	23	20	22	21	22	23	22	21	22\n10	42	44	43	45	41	43	42	44	43	44	42	43\n15	60	62	61	63	59	61	60	62	61	62	60	61\n20	75	77	76	78	74	76	75	77	76	77	75	76\n30	88	89	90	90	87	88	89	90	89	89	88	89\n45	95	96	97	97	94	95	96	97	96	96	95	96\n",
+    "two_sample": "Reference	Test	Paired_A	Paired_B\n101.2	99.8	10.2	10.0\n100.8	98.9	10.5	10.1\n99.7	100.1	9.9	9.7\n100.4	99.2	10.3	10.0\n101.0	99.5	10.1	9.8\n99.9	98.7	10.4	10.2\n100.6	99.1	10.0	9.9\n",
+    "anova": "Operator	Machine	Shift	Temp	Response\nA	M1	Day	24.8	98.1\nA	M1	Night	25.4	97.4\nA	M2	Day	24.9	99.0\nA	M2	Night	25.7	98.0\nB	M1	Day	25.2	97.6\nB	M1	Night	25.8	96.8\nB	M2	Day	25.0	98.5\nB	M2	Night	26.1	97.2\nC	M1	Day	24.7	98.8\nC	M1	Night	25.3	97.9\nC	M2	Day	24.8	99.3\nC	M2	Night	25.9	98.1\nA	M1	Day	24.6	98.4\nA	M2	Day	25.1	98.7\nB	M1	Night	25.9	96.9\nB	M2	Night	26.0	97.5\nC	M1	Day	24.9	98.6\nC	M2	Day	25.0	99.1\n",
+    "ti": "SampleA	SampleB\n98.1	97.4\n99.2	98.0\n100.0	98.8\n97.9	97.1\n98.7	97.9\n99.5	98.4\n100.2	99.0\n",
+    "pca": "Batch	Site	Assay	Impurity	Water	Hardness\nB1	North	99.1	0.12	1.8	7.2\nB2	North	98.7	0.18	2.0	7.0\nB3	South	97.9	0.31	2.8	6.1\nB4	South	98.2	0.27	2.5	6.4\nB5	East	99.4	0.10	1.7	7.5\nB6	East	99.0	0.14	1.9	7.3\nB7	West	97.6	0.35	3.0	5.9\nB8	West	97.8	0.33	2.9	6.0\n"
+}
+
+
+def load_sample_text(state_key, sample_key):
+    st.session_state[state_key] = SAMPLE_DATA[sample_key]
+
+
+def load_dual_sample_text(state_key_a, sample_key_a, state_key_b, sample_key_b):
+    st.session_state[state_key_a] = SAMPLE_DATA[sample_key_a]
+    st.session_state[state_key_b] = SAMPLE_DATA[sample_key_b]
+
 
 def render():
     render_display_settings()
@@ -101,7 +122,11 @@ def render():
     if tool == "01 - Descriptive Statistics":
         app_header("📊 App 01 - Descriptive Statistics", "Paste one or more numeric columns with headers. For one column, get a graphical summary. For multiple columns, choose a reference and a test column to compare.")
     
-        data_input = st.text_area("Data (paste with headers)", height=220)
+        c_sample1, c_sample2 = st.columns([1, 5])
+        with c_sample1:
+            st.button("Sample Data", key="sample_desc", on_click=load_sample_text, args=("desc_input", "desc"))
+        with c_sample2:
+            data_input = st.text_area("Data (paste with headers)", height=220, key="desc_input")
         decimals = st.slider("Decimals", 1, 8, DEFAULT_DECIMALS, key="desc_dec")
         alpha = st.slider("Significance level α", 0.001, 0.100, 0.050, 0.001, key="desc_alpha")
         mean_ci_conf = st.slider("Mean CI confidence (%)", 80, 99, 95, 1, key="desc_mean_ci")
@@ -579,7 +604,11 @@ def render():
     
         left, right = st.columns([1.45, 1])
         with left:
-            xy_input = st.text_area("Paste X and Y data (two Excel columns, with or without headers)", height=220)
+            c_sample1, c_sample2 = st.columns([1, 5])
+        with c_sample1:
+            st.button("Sample Data", key="sample_reg", on_click=load_sample_text, args=("reg_xy_input", "reg"))
+        with c_sample2:
+            xy_input = st.text_area("Paste X and Y data (two Excel columns, with or without headers)", height=220, key="reg_xy_input")
         with right:
             x_pred_text = st.text_area("Predict X (optional)", height=110, placeholder="Paste X values to predict")
     
@@ -883,7 +912,11 @@ def render():
     
         c1, c2 = st.columns([1.35, 1])
         with c1:
-            xy_input = st.text_area("Paste Time and Response data (with or without headers)", height=220)
+            c_sample1, c_sample2 = st.columns([1, 5])
+        with c_sample1:
+            st.button("Sample Data", key="sample_shelf", on_click=load_sample_text, args=("shelf_xy_input", "shelf"))
+        with c_sample2:
+            xy_input = st.text_area("Paste Time and Response data (with or without headers)", height=220, key="shelf_xy_input")
         with c2:
             pred_x_text = st.text_area("Predict future X values (optional)", value="30\n36\n48", height=120)
             decimals = st.slider("Decimals", 1, 8, DEFAULT_DECIMALS, key="sl_dec")
@@ -1041,9 +1074,13 @@ def render():
     
         col1, col2 = st.columns(2)
         with col1:
-            ref_text = st.text_area("Reference profile table", height=220)
+            c_sample_ref, c_sample_test = st.columns([1,5])
+        with c_sample_ref:
+            st.button("Sample Data", key="sample_f2", on_click=load_dual_sample_text, args=("f2_ref_input", "f2_ref", "f2_test_input", "f2_test"))
+        with c_sample_test:
+            ref_text = st.text_area("Reference profile table", height=220, key="f2_ref_input")
         with col2:
-            test_text = st.text_area("Test profile table", height=220)
+            test_text = st.text_area("Test profile table", height=220, key="f2_test_input")
     
         s1, s2, s3 = st.columns([1.1, 1.4, 0.9])
         with s1:
@@ -1227,7 +1264,11 @@ def render():
     if tool == "05 - Two-Sample Tests":
         app_header("⚖️ App 05 - Two-Sample Tests", "Paste one table with headers, then choose any two sample columns to compare.")
         st.markdown("Paste a **wide** table from Excel. If you paste more than two numeric columns, you can choose which two columns to compare from the dropdowns. The selected headers are used automatically in tables and plots.")
-        data_input = st.text_area("Data table (with headers)", height=240)
+        c_sample1, c_sample2 = st.columns([1, 5])
+        with c_sample1:
+            st.button("Sample Data", key="sample_two", on_click=load_sample_text, args=("two_sample_input", "two_sample"))
+        with c_sample2:
+            data_input = st.text_area("Data table (with headers)", height=240, key="two_sample_input")
         mode = st.radio("Comparison type", ["Independent samples", "Paired samples"], horizontal=True)
         alpha = st.slider("Significance level α", 0.001, 0.100, 0.05, 0.001)
         decimals = st.slider("Decimals", 1, 8, DEFAULT_DECIMALS, key="two_dec")
@@ -1345,117 +1386,155 @@ def render():
     
     # -------------------------------------------------
 
-    # App 06 Two-Way ANOVA
+    # App 06 Two-Way ANOVA / GLM
     # -------------------------------------------------
     if tool == "06 - Two-Way ANOVA":
-        app_header("📐 App 06 - Two-Way ANOVA", "Analyze two categorical factors and their interaction for a selected numeric response.")
-        data_input = st.text_area("Paste data with headers", height=240)
+        app_header("📐 App 06 - Two-Way ANOVA / GLM", "Use classic two-way ANOVA for two factors, or switch to a general linear model when you need extra factors or numeric covariates.")
+        c_sample1, c_sample2 = st.columns([1, 5])
+        with c_sample1:
+            st.button("Sample Data", key="sample_anova", on_click=load_sample_text, args=("anova_input", "anova"))
+        with c_sample2:
+            data_input = st.text_area("Paste data with headers", height=240, key="anova_input")
         decimals = st.slider("Decimals", 1, 8, DEFAULT_DECIMALS, key="anova2_dec")
         if data_input:
             try:
                 df = parse_pasted_table(data_input, header=True)
                 all_cols = list(df.columns)
-                c1, c2, c3 = st.columns(3)
+                numeric_cols = get_numeric_columns(df, min_nonempty=3, required_numeric_ratio=0.8)
+
+                c1, c2 = st.columns([1, 2])
                 with c1:
-                    factor_a = st.selectbox("Factor A", all_cols, index=0)
+                    response = st.selectbox("Response", numeric_cols, index=min(len(numeric_cols)-1, max(0, len(numeric_cols)-1)))
                 with c2:
-                    factor_b = st.selectbox("Factor B", [c for c in all_cols if c != factor_a], index=0)
-                with c3:
-                    response = st.selectbox("Response", [c for c in all_cols if c not in [factor_a, factor_b]], index=0)
-                d = df[[factor_a, factor_b, response]].copy()
-                d[response] = to_numeric(d[response])
-                d = d.dropna().rename(columns={factor_a: "FactorA", factor_b: "FactorB", response: "Response"})
-                model = smf.ols("Response ~ C(FactorA) * C(FactorB)", data=d).fit()
-                raw_anova = anova_lm(model, typ=2)
-    
-                st.markdown(f"**Model: {response} ~ {factor_a} + {factor_b} + {factor_a} * {factor_b}**")
-    
-                anova_rows = []
-                mapping = [
-                    ("C(FactorA)", factor_a),
-                    ("C(FactorB)", factor_b),
-                    ("C(FactorA):C(FactorB)", "Interaction"),
-                ]
-                for idx, label in mapping:
-                    if idx in raw_anova.index:
+                    analysis_mode = st.radio("Analysis mode", ["Auto", "Two-Way ANOVA", "General Linear Model"], horizontal=True, key="anova_glm_mode")
+
+                candidate_factors = [c for c in all_cols if c != response]
+                default_factors = [c for c in ["Operator", "Machine"] if c in candidate_factors][:2]
+                if len(default_factors) < 2:
+                    default_factors = candidate_factors[:min(2, len(candidate_factors))]
+                factors = st.multiselect("Categorical factors", candidate_factors, default=default_factors, key="anova_factor_select")
+                covariate_candidates = [c for c in numeric_cols if c != response and c not in factors]
+                default_covariates = [c for c in ["Temp"] if c in covariate_candidates]
+                covariates = st.multiselect("Numeric covariates (optional)", covariate_candidates, default=default_covariates if analysis_mode == "General Linear Model" else [], key="anova_covariate_select")
+
+                interaction_mode = "Two-way interaction"
+                if analysis_mode == "General Linear Model" or (analysis_mode == "Auto" and (len(factors) != 2 or len(covariates) > 0)):
+                    interaction_mode = st.selectbox("Factor interaction structure", ["Main effects only", "Two-way interaction"], index=1, key="anova_interaction_mode")
+
+                if len(factors) < 2:
+                    st.error("Select at least two categorical factors.")
+                else:
+                    auto_glm = (analysis_mode == "Auto" and (len(factors) != 2 or len(covariates) > 0))
+                    use_glm = analysis_mode == "General Linear Model" or auto_glm
+
+                    used_cols = list(dict.fromkeys(factors + covariates + [response]))
+                    d = df[used_cols].copy()
+                    d[response] = to_numeric(d[response])
+                    for c in covariates:
+                        d[c] = to_numeric(d[c])
+                    d = d.dropna(subset=[response] + covariates).copy()
+                    for c in factors:
+                        d[c] = d[c].astype(str)
+
+                    factor_terms = [f"C({c})" for c in factors]
+                    cov_terms = list(covariates)
+                    rhs_terms = factor_terms + cov_terms
+                    if use_glm and interaction_mode == "Two-way interaction":
+                        for i in range(len(factor_terms)):
+                            for j in range(i + 1, len(factor_terms)):
+                                rhs_terms.append(f"{factor_terms[i]}:{factor_terms[j]}")
+                    elif (not use_glm) and len(factor_terms) == 2:
+                        rhs_terms = [factor_terms[0], factor_terms[1], f"{factor_terms[0]}:{factor_terms[1]}"]
+
+                    formula = f"Q('{response}') ~ " + " + ".join(rhs_terms)
+                    model = smf.ols(formula, data=d).fit()
+                    raw_anova = anova_lm(model, typ=2)
+
+                    st.markdown(f"**Model:** `{formula}`")
+                    st.caption("Auto mode uses classic two-way ANOVA when exactly two categorical factors are selected and no covariates are added. Otherwise it switches to a general linear model.")
+
+                    anova_rows = []
+                    for idx in raw_anova.index:
                         row = raw_anova.loc[idx]
+                        label = idx.replace("C(", "").replace(")", "")
+                        label = label.replace(":", " × ")
+                        if label == "Residual":
+                            label = "Error"
                         dfv = row.get("df", np.nan)
                         ss = row.get("sum_sq", np.nan)
                         anova_rows.append({
                             "Source": label,
                             "DF": dfv,
-                            "Sum of Squares": ss,
-                            "Mean Square": ss / dfv if pd.notna(dfv) and dfv != 0 else np.nan,
-                            "F Value": row.get("F", np.nan),
-                            "P Value": row.get("PR(>F)", np.nan),
+                            "SS": ss,
+                            "MS": ss / dfv if pd.notna(dfv) and dfv != 0 else np.nan,
+                            "F": row.get("F", np.nan),
+                            "p Value": row.get("PR(>F)", np.nan),
                         })
-                if "Residual" in raw_anova.index:
-                    row = raw_anova.loc["Residual"]
-                    dfv = row.get("df", np.nan)
-                    ss = row.get("sum_sq", np.nan)
-                    anova_rows.append({
-                        "Source": "Error",
-                        "DF": dfv,
-                        "Sum of Squares": ss,
-                        "Mean Square": ss / dfv if pd.notna(dfv) and dfv != 0 else np.nan,
-                        "F Value": np.nan,
-                        "P Value": np.nan,
+                    anova_rows.append({"Source": "N", "DF": len(d), "SS": np.nan, "MS": np.nan, "F": np.nan, "p Value": np.nan})
+                    anova = pd.DataFrame(anova_rows)
+                    report_table(anova, "ANOVA / GLM table", decimals)
+
+                    coef_tbl = pd.DataFrame({
+                        "Term": model.params.index,
+                        "Coefficient": model.params.values,
+                        "SE Coefficient": model.bse.values,
+                        "t Value": model.tvalues.values,
+                        "p Value": model.pvalues.values,
                     })
-                anova_rows.append({
-                    "Source": "N",
-                    "DF": len(d),
-                    "Sum of Squares": np.nan,
-                    "Mean Square": np.nan,
-                    "F Value": np.nan,
-                    "P Value": np.nan,
-                })
-                anova = pd.DataFrame(anova_rows)
-                report_table(anova, "Two-way ANOVA table", decimals)
-    
-                summary = d.groupby(["FactorA", "FactorB"])["Response"].agg(["count", "mean", "std", "min", "max"]).reset_index()
-                summary.columns = [factor_a, factor_b, "N", "Mean", "Std. Deviation", "Minimum", "Maximum"]
-                report_table(summary, "Cell summary statistics", decimals)
-    
-                fig_inter, ax = plt.subplots(figsize=(FIG_W, FIG_H))
-                for lvl in d["FactorB"].astype(str).unique():
-                    sub = d[d["FactorB"].astype(str) == lvl]
-                    means = sub.groupby("FactorA")["Response"].mean().reset_index()
-                    ax.plot(means["FactorA"].astype(str), means["Response"], marker='o', lw=2, label=f"{factor_b} = {lvl}")
-                apply_ax_style(ax, "Interaction plot", factor_a, response, legend=True)
-                st.pyplot(fig_inter)
-    
-                fig_res = residual_plot(model.fittedvalues, model.resid, xlabel="Fitted values", ylabel="Residuals", title="Residuals vs fitted")
-                st.pyplot(fig_res)
-                fig_qq = qq_plot(model.resid, title="Normal probability plot of ANOVA residuals")
-                st.pyplot(fig_qq)
-    
-                export_results(
-                    prefix="two_way_anova",
-                    report_title="Statistical Analysis Report",
-                    module_name="Two-Way ANOVA",
-                    statistical_analysis="A two-way analysis of variance was fitted to the selected response variable using two chosen categorical factors and their interaction. Sums of squares, mean squares, F statistics, and p-values were computed from the linear model, and residual diagnostics were generated to support assessment of model assumptions.",
-                    offer_text="This analysis offers a direct way to quantify the main effects of two factors, test whether their interaction is present, compare cell means, and visualize whether factor effects are consistent across levels of the other factor.",
-                    python_tools="Python tools used here include pandas and numpy for column selection and aggregation, statsmodels.formula.api and statsmodels.stats.anova for model fitting and ANOVA calculations, matplotlib for interaction and residual plots, openpyxl for Excel export, and reportlab for the PDF-style report.",
-                    table_map={"ANOVA": anova, "Cell Summary": summary},
-                    figure_map={
-                        "Interaction plot": fig_to_png_bytes(fig_inter),
-                        "Residuals vs fitted": fig_to_png_bytes(fig_res),
-                        "Normal probability plot": fig_to_png_bytes(fig_qq),
-                    },
-                    conclusion="The ANOVA table reports whether the selected factors and their interaction contributed significantly to variation in the selected response.",
-                    decimals=decimals,
-                )
+                    report_table(coef_tbl, "Model coefficients", decimals)
+
+                    group_cols = factors[:min(2, len(factors))]
+                    summary = d.groupby(group_cols)[response].agg(["count", "mean", "std", "min", "max"]).reset_index()
+                    summary.columns = group_cols + ["N", "Mean", "Std. Deviation", "Minimum", "Maximum"]
+                    report_table(summary, "Grouped summary statistics", decimals)
+
+                    figs = {}
+                    if len(factors) >= 2:
+                        fig_inter, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+                        factor_a, factor_b = factors[:2]
+                        for lvl in d[factor_b].astype(str).unique():
+                            sub = d[d[factor_b].astype(str) == lvl]
+                            means = sub.groupby(factor_a)[response].mean().reset_index()
+                            ax.plot(means[factor_a].astype(str), means[response], marker='o', lw=2, label=f"{factor_b} = {lvl}")
+                        apply_ax_style(ax, "Interaction plot", factor_a, response, legend=True, plot_key="Two-way ANOVA interaction")
+                        st.pyplot(fig_inter)
+                        figs["Interaction plot"] = fig_to_png_bytes(fig_inter)
+
+                    fig_res = residual_plot_for("Two-way ANOVA residual plot", model.fittedvalues, model.resid, xlabel="Fitted values", ylabel="Residuals", title="Residuals vs fitted")
+                    st.pyplot(fig_res)
+                    figs["Residuals vs fitted"] = fig_to_png_bytes(fig_res)
+                    fig_qq = qq_plot_for("Two-way ANOVA Q-Q plot", model.resid, title="Normal probability plot of model residuals")
+                    st.pyplot(fig_qq)
+                    figs["Normal probability plot"] = fig_to_png_bytes(fig_qq)
+
+                    mode_name = "General Linear Model" if use_glm else "Two-Way ANOVA"
+                    export_results(
+                        prefix="anova_glm_analysis",
+                        report_title="Statistical Analysis Report",
+                        module_name=mode_name,
+                        statistical_analysis="An ordinary least squares model was fitted to the selected response using the chosen categorical factors and optional numeric covariates. Type II ANOVA was used to summarize sums of squares, mean squares, F statistics, and p-values for each term. Residual diagnostics were also produced to support model checking.",
+                        offer_text="This module can behave like a classic two-way ANOVA when two factors are selected, but it can also expand into a more flexible general linear model when additional factors or covariates are needed.",
+                        python_tools="Python tools used here include pandas and numpy for column handling, statsmodels.formula.api and statsmodels.stats.anova for fitting and ANOVA calculations, matplotlib for interaction and residual plots, openpyxl for Excel export, and reportlab for the PDF-style report.",
+                        table_map={"ANOVA_GLM": anova, "Coefficients": coef_tbl, "Grouped Summary": summary},
+                        figure_map=figs,
+                        conclusion=f"{mode_name} was fitted using {len(factors)} factor(s) and {len(covariates)} covariate(s). Review the ANOVA/GLM table and the coefficient table together to interpret factor effects, covariate trends, and interactions.",
+                        decimals=decimals,
+                    )
             except Exception as e:
                 st.error(str(e))
-    
-    
+
+
     # -------------------------------------------------
 
     # App 07 Tolerance & Confidence Intervals
     # -------------------------------------------------
     if tool == "07 - Tolerance & Confidence Intervals":
         app_header("🎯 App 07 - Tolerance & Confidence Intervals", "Generate confidence intervals and normal-theory tolerance intervals for one or two samples.")
-        data_input = st.text_area("Paste one table with headers", height=240)
+        c_sample1, c_sample2 = st.columns([1, 5])
+        with c_sample1:
+            st.button("Sample Data", key="sample_ti", on_click=load_sample_text, args=("ti_input", "ti"))
+        with c_sample2:
+            data_input = st.text_area("Paste one table with headers", height=240, key="ti_input")
         confidence = st.slider("Confidence level (%)", 80, 99, 95)
         coverage = st.slider("Population coverage for TI (%)", 80, 99, 95)
         paired = st.checkbox("Paired comparison for difference in means", value=False)
@@ -1552,7 +1631,11 @@ def render():
     # -------------------------------------------------
     if tool == "08 - PCA Analysis":
         app_header("🌐 App 08 - PCA Analysis", "Reduce multivariate data to principal components and visualize scores and loadings.")
-        data_input = st.text_area("Paste data with headers", height=240)
+        c_sample1, c_sample2 = st.columns([1, 5])
+        with c_sample1:
+            st.button("Sample Data", key="sample_pca", on_click=load_sample_text, args=("pca_input", "pca"))
+        with c_sample2:
+            data_input = st.text_area("Paste data with headers", height=240, key="pca_input")
         decimals = st.slider("Decimals", 1, 8, DEFAULT_DECIMALS, key="pca_dec")
         if data_input:
             try:
