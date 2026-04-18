@@ -75,7 +75,7 @@ def inject_css():
         <style>
         .block-container {padding-top: 0.9rem; padding-bottom: 2rem;}
         .app-header {border:1px solid #e2e8f0; border-radius:14px; padding:16px 20px;
-            background: linear-gradient(90deg, #f8fafc 0%, #ffffff 100%); margin-bottom: 1rem;
+            background: linear-gradient(90deg, #f8fafc 0%, #ffffff 100%); margin-bottom: 1rem; margin-top: 10px;
             box-shadow: 0 1px 4px rgba(15,23,42,0.05);}
         .app-title {font-size: 1.75rem; font-weight: 700; margin-bottom: 0.2rem; color:#0f172a;}
         .app-sub {font-size: 0.96rem; color:#475569;}
