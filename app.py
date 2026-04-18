@@ -1,21 +1,18 @@
 from modules.common import init_page
 import streamlit as st
 
-init_page("lm Stats Suite")
+init_page("Welcome")
 
-st.title("Welcome")
+st.title("🏠 Welcome")
 st.markdown(
     """
-    This app brings together practical statistical and experimental design tools for analytical, formulation, and development work, including 
-    - descriptive statistics
-    - regression
-    - shelf-life analysis
-    - dissolution comparison
-    - hypothesis testing
-    - ANOVA
-    - PCA
-    - DoE
+    This app brings together practical statistical and experimental design tools for analytical, formulation, and development work.
+
+    **Available suites**
+    - **📊 Stats Suite** for descriptive statistics, regression, shelf-life analysis, hypothesis testing, ANOVA, intervals, and PCA
+    - **💊 IVIVC Suite** for dissolution similarity today, with room for additional IVIVC tools later
+    - **🧪 DoE Studio** for process, mixture, mixture-process, and co-solvent experimental design work
     
-    The pages are organized into Stats Suite and DoE Studio so all analyses stay under one app while remaining easy to navigate and maintain.
+    Use the sidebar to move between pages.
     """
 )
