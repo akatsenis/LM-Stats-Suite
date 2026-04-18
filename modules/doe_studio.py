@@ -44,6 +44,194 @@ DOE_SAMPLE_RESPONSE_DATA = """Block\tTemp\tSpeed\tpH\tCatalyst\tYield\tPurity\tV
 """
 
 
+
+
+def _default_cosolvent_settings():
+    return {
+        "cosolvent_names": ["Propylene Glycol", "Glycerol", "PEG400"],
+        "cosolvent_lows": [0.000, 0.000, 0.000],
+        "cosolvent_highs": [0.125, 0.200, 0.150],
+        "water_name": "Water",
+        "total": 1.0,
+    }
+
+
+def _build_cosolvent_design(
+    cosolvent_names,
+    cosolvent_lows,
+    cosolvent_highs,
+    water_name="Water",
+    total=1.0,
+    blocks=1,
+    replicates=1,
+    randomize=True,
+    seed=123,
+):
+    levels = []
+    coded_levels = []
+    for low, high in zip(cosolvent_lows, cosolvent_highs):
+        low = float(low)
+        high = float(high)
+        if high < low:
+            low, high = high, low
+        mid = (low + high) / 2.0
+        vals = [low, mid, high]
+        unique_vals = []
+        unique_codes = []
+        for code, val in zip([-1, 0, 1], vals):
+            if not any(abs(val - u) < 1e-12 for u in unique_vals):
+                unique_vals.append(float(val))
+                unique_codes.append(code)
+        levels.append(unique_vals)
+        coded_levels.append(unique_codes)
+
+    runs = []
+    combo_idx = [list(range(len(v))) for v in levels]
+    for block in range(1, blocks + 1):
+        for rep in range(1, replicates + 1):
+            for idxs in product(*combo_idx):
+                amounts = [levels[i][j] for i, j in enumerate(idxs)]
+                water_amt = float(total) - float(sum(amounts))
+                if water_amt < -1e-12:
+                    continue
+                row = {"Block": block, "Replicate": rep, "RunType": "Co-Solvent constrained blend"}
+                for i, name in enumerate(cosolvent_names):
+                    row[f"{_safe_factor_prefix(i)} (coded)"] = int(coded_levels[i][idxs[i]])
+                    row[name] = float(amounts[i])
+                row[water_name] = max(0.0, float(water_amt))
+                row["Total fill volume"] = float(total)
+                row["Cosolvent total"] = float(sum(amounts))
+                for name in list(cosolvent_names) + [water_name]:
+                    row[f"{name} (fraction)"] = row[name] / float(total) if float(total) > 0 else np.nan
+                runs.append(row)
+    design = pd.DataFrame(runs)
+    if randomize and len(design) > 0:
+        design = _randomize_design_within_block(design, seed=seed)
+    if len(design) > 0:
+        design.insert(0, "Run", np.arange(1, len(design) + 1))
+    return design
+
+
+
+def _build_cosolvent_process_design(
+    cosolvent_names,
+    cosolvent_lows,
+    cosolvent_highs,
+    process_factor_names,
+    process_lows,
+    process_highs,
+    water_name="Water",
+    total=1.0,
+    process_design_kind="factorial",
+    blocks=1,
+    replicates=1,
+    randomize=True,
+    seed=123,
+):
+    mix_design = _build_cosolvent_design(
+        cosolvent_names,
+        cosolvent_lows,
+        cosolvent_highs,
+        water_name=water_name,
+        total=total,
+        blocks=1,
+        replicates=1,
+        randomize=False,
+        seed=seed,
+    )
+    if process_design_kind == "ccd":
+        proc_design = _build_ccd_design(process_factor_names, process_lows, process_highs, blocks=1, center_points=2, replicates=1, randomize=False, seed=seed)
+    else:
+        proc_design = _build_factorial_design(process_factor_names, process_lows, process_highs, blocks=1, center_points=0, replicates=1, randomize=False, seed=seed)
+    mix_cols = [c for c in mix_design.columns if c not in ["Run", "Block", "Replicate", "RunType"]]
+    proc_cols = [c for c in proc_design.columns if c not in ["Run", "Block", "Replicate", "RunType"]]
+    runs = []
+    for block in range(1, blocks + 1):
+        for rep in range(1, replicates + 1):
+            for _, mix_row in mix_design.iterrows():
+                for _, proc_row in proc_design.iterrows():
+                    row = {"Block": block, "Replicate": rep, "RunType": f"Co-Solvent constrained blend + {process_design_kind.upper()}"}
+                    for c in mix_cols:
+                        row[c] = mix_row[c]
+                    for c in proc_cols:
+                        row[c] = proc_row[c]
+                    runs.append(row)
+    design = pd.DataFrame(runs)
+    if randomize and len(design) > 0:
+        design = _randomize_design_within_block(design, seed=seed)
+    if len(design) > 0:
+        design.insert(0, "Run", np.arange(1, len(design) + 1))
+    return design
+
+
+
+def _make_cosolvent_sample_dataframe(process=False):
+    s = _default_cosolvent_settings()
+    if process:
+        design = _build_cosolvent_process_design(
+            s["cosolvent_names"],
+            s["cosolvent_lows"],
+            s["cosolvent_highs"],
+            ["pH", "Temperature"],
+            [3.5, 25.0],
+            [6.5, 40.0],
+            water_name=s["water_name"],
+            total=s["total"],
+            process_design_kind="factorial",
+            blocks=1,
+            replicates=1,
+            randomize=False,
+            seed=123,
+        )
+    else:
+        design = _build_cosolvent_design(
+            s["cosolvent_names"],
+            s["cosolvent_lows"],
+            s["cosolvent_highs"],
+            water_name=s["water_name"],
+            total=s["total"],
+            blocks=1,
+            replicates=1,
+            randomize=False,
+            seed=123,
+        )
+    pg = design[s["cosolvent_names"][0]].to_numpy(dtype=float)
+    gly = design[s["cosolvent_names"][1]].to_numpy(dtype=float)
+    peg = design[s["cosolvent_names"][2]].to_numpy(dtype=float)
+    water = design[s["water_name"]].to_numpy(dtype=float)
+    sol = (
+        3.0
+        + 42.0 * pg
+        + 20.0 * gly
+        + 31.0 * peg
+        + 55.0 * pg * peg
+        + 18.0 * gly * peg
+        + 10.0 * pg * gly
+        + 5.0 * water
+    )
+    visc = 2.5 + 180.0 * pg + 420.0 * gly + 320.0 * peg + 55.0 * pg * gly
+    if process:
+        ph = design["pH"].to_numpy(dtype=float)
+        temp = design["Temperature"].to_numpy(dtype=float)
+        sol = sol + 0.55 * (ph - 5.0) + 0.08 * (temp - 25.0) + 2.5 * pg * (ph - 5.0)
+        visc = visc - 0.05 * (temp - 25.0) + 0.12 * (ph - 5.0)
+    design["Solubility (mg/mL)"] = np.round(sol, 3)
+    design["Viscosity (cP)"] = np.round(visc, 3)
+    design["Water fraction"] = np.round(design[s["water_name"]] / float(s["total"]), 6)
+    return design
+
+
+
+def _load_sample_response_text_cosolvent():
+    st.session_state["doe_analysis_family"] = DOE_FAMILY_MIXTURE
+    st.session_state["doe_response_input"] = _make_cosolvent_sample_dataframe(process=False).to_csv(sep="	", index=False)
+
+
+
+def _load_sample_response_text_cosolvent_process():
+    st.session_state["doe_analysis_family"] = DOE_FAMILY_MIXPROC
+    st.session_state["doe_response_input"] = _make_cosolvent_sample_dataframe(process=True).to_csv(sep="	", index=False)
+
 # ---------- sample loaders / design builder ----------
 
 def _load_sample_design():
@@ -1039,7 +1227,10 @@ def render():
                 file_name="doe_design.csv",
                 mime="text/csv",
             )
-            info_box("After collecting experimental responses, switch to the Analyze Responses tab and paste the completed design table there.")
+            if design_family in ["Co-Solvents Evaluation", "Co-Solvents Evaluation - Process"]:
+                info_box("For co-solvent designs, keep the co-solvent amount columns and the auto-calculated water column in the final dataset. In analysis, treat them as mixture components, with any extra numeric settings such as pH or temperature entered as process factors.")
+            else:
+                info_box("After collecting experimental responses, switch to the Analyze Responses tab and paste the completed design table there.")
 
     with tabs[1]:
         st.subheader("Response Analysis")
@@ -1175,6 +1366,74 @@ def _load_sample_mixproc_design():
         [40.0, 6.5],
         total=100.0,
         mixture_design_kind="simplex-centroid",
+        process_design_kind="factorial",
+        blocks=1,
+        replicates=1,
+        randomize=True,
+        seed=123,
+    )
+
+
+def _load_sample_cosolvent_design():
+    s = _default_cosolvent_settings()
+    st.session_state["doe_design_family"] = "Co-Solvents Evaluation"
+    st.session_state["doe_cs_n_cosolvents"] = len(s["cosolvent_names"])
+    st.session_state["doe_cs_total"] = s["total"]
+    st.session_state["doe_cs_water_name"] = s["water_name"]
+    st.session_state["doe_blocks"] = 1
+    st.session_state["doe_replicates"] = 1
+    st.session_state["doe_randomize"] = True
+    st.session_state["doe_seed"] = 123
+    for i, name in enumerate(s["cosolvent_names"]):
+        st.session_state[f"doe_cs_name_{i}"] = name
+        st.session_state[f"doe_cs_low_{i}"] = s["cosolvent_lows"][i]
+        st.session_state[f"doe_cs_high_{i}"] = s["cosolvent_highs"][i]
+    st.session_state["doe_generated_design"] = _build_cosolvent_design(
+        s["cosolvent_names"],
+        s["cosolvent_lows"],
+        s["cosolvent_highs"],
+        water_name=s["water_name"],
+        total=s["total"],
+        blocks=1,
+        replicates=1,
+        randomize=True,
+        seed=123,
+    )
+
+
+
+def _load_sample_cosolvent_process_design():
+    s = _default_cosolvent_settings()
+    st.session_state["doe_design_family"] = "Co-Solvents Evaluation - Process"
+    st.session_state["doe_cs_n_cosolvents"] = len(s["cosolvent_names"])
+    st.session_state["doe_cs_total"] = s["total"]
+    st.session_state["doe_cs_water_name"] = s["water_name"]
+    st.session_state["doe_mp_n_process"] = 2
+    st.session_state["doe_cs_proc_kind"] = "factorial"
+    st.session_state["doe_blocks"] = 1
+    st.session_state["doe_replicates"] = 1
+    st.session_state["doe_randomize"] = True
+    st.session_state["doe_seed"] = 123
+    for i, name in enumerate(s["cosolvent_names"]):
+        st.session_state[f"doe_cs_name_{i}"] = name
+        st.session_state[f"doe_cs_low_{i}"] = s["cosolvent_lows"][i]
+        st.session_state[f"doe_cs_high_{i}"] = s["cosolvent_highs"][i]
+    proc_names = ["pH", "Temperature"]
+    proc_lows = [3.5, 25.0]
+    proc_highs = [6.5, 40.0]
+    for i, name in enumerate(proc_names):
+        st.session_state[f"doe_cs_proc_name_{i}"] = name
+        st.session_state[f"doe_cs_proc_low_{i}"] = proc_lows[i]
+        st.session_state[f"doe_cs_proc_high_{i}"] = proc_highs[i]
+    st.session_state["doe_generated_design"] = _build_cosolvent_process_design(
+        s["cosolvent_names"],
+        s["cosolvent_lows"],
+        s["cosolvent_highs"],
+        proc_names,
+        proc_lows,
+        proc_highs,
+        water_name=s["water_name"],
+        total=s["total"],
         process_design_kind="factorial",
         blocks=1,
         replicates=1,
@@ -2104,13 +2363,23 @@ def render():
         info_box("Build process, mixture, or mixture-process designs. The new options are intended for pharma work such as process optimization, blend studies, and cosolvent/solubility screening.")
         design_family = st.selectbox(
             "Design family",
-            ["Process factorial", "Process CCD", "Mixture simplex-centroid", "Mixture simplex-lattice", "Mixture-Process"],
+            [
+                "Process factorial",
+                "Process CCD",
+                "Mixture simplex-centroid",
+                "Mixture simplex-lattice",
+                "Mixture-Process",
+                "Co-Solvents Evaluation",
+                "Co-Solvents Evaluation - Process",
+            ],
             key="doe_design_family",
         )
-        sample_cols = st.columns(4)
+        sample_cols = st.columns(5)
         sample_cols[0].button("Process sample", key="sample_doe_design_proc2", on_click=_load_sample_design)
         sample_cols[1].button("Mixture sample", key="sample_doe_design_mix2", on_click=_load_sample_mixture_design)
         sample_cols[2].button("Mixture-process sample", key="sample_doe_design_mixproc2", on_click=_load_sample_mixproc_design)
+        sample_cols[3].button("Co-Solvents Evaluation", key="sample_doe_design_cos2", on_click=_load_sample_cosolvent_design)
+        sample_cols[4].button("Co-Solvents Evaluation - Process", key="sample_doe_design_cosp2", on_click=_load_sample_cosolvent_process_design)
 
         blocks = st.number_input("Blocks", min_value=1, max_value=10, value=int(st.session_state.get("doe_blocks", 1)), step=1, key="doe_blocks")
         replicates = st.number_input("Replicates", min_value=1, max_value=10, value=int(st.session_state.get("doe_replicates", 1)), step=1, key="doe_replicates")
@@ -2153,6 +2422,67 @@ def render():
             if st.button("Generate design", type="primary", key="gen_design_extended_mix"):
                 design = _build_mixture_design(component_names, total=float(total), design_kind="simplex-centroid" if design_family == "Mixture simplex-centroid" else "simplex-lattice", degree=int(degree), blocks=int(blocks), replicates=int(replicates), randomize=randomize, seed=int(seed))
                 st.session_state["doe_generated_design"] = design
+        elif design_family == "Co-Solvents Evaluation":
+            defaults = _default_cosolvent_settings()
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                n_cosolvents = st.number_input("Number of co-solvents", min_value=1, max_value=5, value=int(st.session_state.get("doe_cs_n_cosolvents", 3)), step=1, key="doe_cs_n_cosolvents")
+            with c2:
+                total = st.number_input("Final fill volume", min_value=0.01, value=float(st.session_state.get("doe_cs_total", defaults["total"])), key="doe_cs_total")
+            with c3:
+                water_name = st.text_input("Water / q.s. component name", value=st.session_state.get("doe_cs_water_name", defaults["water_name"]), key="doe_cs_water_name")
+            info_box("Enter the allowable low and high amount for each co-solvent per final fill. Water is calculated automatically as q.s. to the final fill volume.")
+            st.markdown("### Co-solvent limits")
+            cos_names, cos_lows, cos_highs = [], [], []
+            default_names = defaults["cosolvent_names"]
+            default_lows = defaults["cosolvent_lows"]
+            default_highs = defaults["cosolvent_highs"]
+            for i in range(int(n_cosolvents)):
+                cols = st.columns([1.5, 1, 1])
+                cos_names.append(cols[0].text_input(f"Co-solvent {i+1} name", value=st.session_state.get(f"doe_cs_name_{i}", default_names[i] if i < len(default_names) else f"Co-solvent {i+1}"), key=f"doe_cs_name_{i}"))
+                cos_lows.append(cols[1].number_input(f"Low limit {i+1}", min_value=0.0, value=float(st.session_state.get(f"doe_cs_low_{i}", default_lows[i] if i < len(default_lows) else 0.0)), key=f"doe_cs_low_{i}"))
+                cos_highs.append(cols[2].number_input(f"High limit {i+1}", min_value=0.0, value=float(st.session_state.get(f"doe_cs_high_{i}", default_highs[i] if i < len(default_highs) else 0.1)), key=f"doe_cs_high_{i}"))
+            if st.button("Generate design", type="primary", key="gen_design_extended_cosolv"):
+                design = _build_cosolvent_design(cos_names, cos_lows, cos_highs, water_name=water_name, total=float(total), blocks=int(blocks), replicates=int(replicates), randomize=randomize, seed=int(seed))
+                st.session_state["doe_generated_design"] = design
+        elif design_family == "Co-Solvents Evaluation - Process":
+            defaults = _default_cosolvent_settings()
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                n_cosolvents = st.number_input("Number of co-solvents", min_value=1, max_value=5, value=int(st.session_state.get("doe_cs_n_cosolvents", 3)), step=1, key="doe_cs_n_cosolvents")
+            with c2:
+                total = st.number_input("Final fill volume", min_value=0.01, value=float(st.session_state.get("doe_cs_total", defaults["total"])), key="doe_cs_total")
+            with c3:
+                n_process = st.number_input("Number of process factors", min_value=1, max_value=4, value=int(st.session_state.get("doe_mp_n_process", 2)), step=1, key="doe_mp_n_process")
+            c1, c2 = st.columns(2)
+            with c1:
+                water_name = st.text_input("Water / q.s. component name", value=st.session_state.get("doe_cs_water_name", defaults["water_name"]), key="doe_cs_water_name")
+            with c2:
+                process_design_kind = st.selectbox("Process sub-design", ["factorial", "ccd"], index=0 if st.session_state.get("doe_cs_proc_kind", "factorial") == "factorial" else 1, key="doe_cs_proc_kind")
+            info_box("Co-solvent limits define the constrained blend space. Water is calculated automatically as q.s. to the final fill volume, and the resulting blend is crossed with the selected process-factor design.")
+            st.markdown("### Co-solvent limits")
+            cos_names, cos_lows, cos_highs = [], [], []
+            default_names = defaults["cosolvent_names"]
+            default_lows = defaults["cosolvent_lows"]
+            default_highs = defaults["cosolvent_highs"]
+            for i in range(int(n_cosolvents)):
+                cols = st.columns([1.5, 1, 1])
+                cos_names.append(cols[0].text_input(f"Co-solvent {i+1} name", value=st.session_state.get(f"doe_cs_name_{i}", default_names[i] if i < len(default_names) else f"Co-solvent {i+1}"), key=f"doe_cs_name_{i}"))
+                cos_lows.append(cols[1].number_input(f"Low limit {i+1}", min_value=0.0, value=float(st.session_state.get(f"doe_cs_low_{i}", default_lows[i] if i < len(default_lows) else 0.0)), key=f"doe_cs_low_{i}"))
+                cos_highs.append(cols[2].number_input(f"High limit {i+1}", min_value=0.0, value=float(st.session_state.get(f"doe_cs_high_{i}", default_highs[i] if i < len(default_highs) else 0.1)), key=f"doe_cs_high_{i}"))
+            st.markdown("### Process factor definitions")
+            proc_names, proc_lows, proc_highs = [], [], []
+            default_proc_names = ["pH", "Temperature"]
+            default_proc_lows = [3.5, 25.0]
+            default_proc_highs = [6.5, 40.0]
+            for i in range(int(n_process)):
+                cols = st.columns([1.3, 1, 1])
+                proc_names.append(cols[0].text_input(f"Process factor {i+1} name", value=st.session_state.get(f"doe_cs_proc_name_{i}", default_proc_names[i] if i < len(default_proc_names) else f"Process {i+1}"), key=f"doe_cs_proc_name_{i}"))
+                proc_lows.append(cols[1].number_input(f"Low level {i+1}", value=float(st.session_state.get(f"doe_cs_proc_low_{i}", default_proc_lows[i] if i < len(default_proc_lows) else 0.0)), key=f"doe_cs_proc_low_{i}"))
+                proc_highs.append(cols[2].number_input(f"High level {i+1}", value=float(st.session_state.get(f"doe_cs_proc_high_{i}", default_proc_highs[i] if i < len(default_proc_highs) else 1.0)), key=f"doe_cs_proc_high_{i}"))
+            if st.button("Generate design", type="primary", key="gen_design_extended_cosolv_proc"):
+                design = _build_cosolvent_process_design(cos_names, cos_lows, cos_highs, proc_names, proc_lows, proc_highs, water_name=water_name, total=float(total), process_design_kind=process_design_kind, blocks=int(blocks), replicates=int(replicates), randomize=randomize, seed=int(seed))
+                st.session_state["doe_generated_design"] = design
         else:
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -2188,7 +2518,10 @@ def render():
             excel_bytes = make_excel_bytes({"Design": design})
             st.download_button("Download design workbook", excel_bytes, file_name="doe_design.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             st.download_button("Download design CSV", design.to_csv(index=False).encode("utf-8"), file_name="doe_design.csv", mime="text/csv")
-            info_box("After collecting experimental responses, switch to the Analyze Responses tab and paste the completed design table there.")
+            if design_family in ["Co-Solvents Evaluation", "Co-Solvents Evaluation - Process"]:
+                info_box("For co-solvent designs, keep the co-solvent amount columns and the auto-calculated water column in the final dataset. In analysis, treat them as mixture components, with any extra numeric settings such as pH or temperature entered as process factors.")
+            else:
+                info_box("After collecting experimental responses, switch to the Analyze Responses tab and paste the completed design table there.")
 
     with tabs[1]:
         st.subheader("Response Analysis")
@@ -2200,14 +2533,16 @@ def render():
         }
         info_box(family_help[family])
 
-        c_sample, c_text = st.columns([1.2, 5])
+        c_sample, c_text = st.columns([2.2, 5])
         with c_sample:
             if family == DOE_FAMILY_PROCESS:
-                st.button("Sample Data", key="sample_doe_response_proc2", on_click=_load_sample_response_text)
+                st.button("Process sample data", key="sample_doe_response_proc2", on_click=_load_sample_response_text)
             elif family == DOE_FAMILY_MIXTURE:
-                st.button("Sample Data", key="sample_doe_response_mix2", on_click=_load_sample_response_text_mixture)
+                st.button("Mixture sample data", key="sample_doe_response_mix2", on_click=_load_sample_response_text_mixture)
+                st.button("Co-Solvents Evaluation", key="sample_doe_response_cos2", on_click=_load_sample_response_text_cosolvent)
             else:
-                st.button("Sample Data", key="sample_doe_response_mixproc2", on_click=_load_sample_response_text_mixproc)
+                st.button("Mixture-process sample data", key="sample_doe_response_mixproc2", on_click=_load_sample_response_text_mixproc)
+                st.button("Co-Solvents Evaluation - Process", key="sample_doe_response_cosp2", on_click=_load_sample_response_text_cosolvent_process)
         with c_text:
             data_input = st.text_area("Paste completed DoE data with headers", height=240, key="doe_response_input")
         decimals = st.slider("Decimals", 1, 8, DEFAULT_DECIMALS, key="doe_dec")
