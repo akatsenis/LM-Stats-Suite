@@ -1029,7 +1029,7 @@ def dis_plot_bootstrap_f2_distribution(boot_vals, observed_f2, ci_low=None, ci_h
     if ci_high is not None: ax.axvline(ci_high, color=cfg["tertiary_color"], linestyle=cfg["aux_line_style"], linewidth=cfg["line_width"])
     apply_ax_style(ax, title, "f2 values", "Density", legend=False, plot_key="Dissolution comparison"); ax.set_xlim(x_min, x_max)
     y_top = float(ax.get_ylim()[1]) if ax.get_ylim()[1] > 0 else 1.0
-    text_kw = dict(rotation=90, va="top", fontsize=9, clip_on=False)
+    text_kw = dict(rotation=90, va="top", fontsize=10, clip_on=False)
     ax.text(mean_boot, y_top * 0.50, f"Mean = {mean_boot:.2f}", ha="right", color=cfg["primary_color"], **text_kw)
     if ci_low is not None:
         ax.text(ci_low, y_top * 0.50, f"Lower CI = {ci_low:.2f}", ha="right", color=cfg["tertiary_color"], **text_kw)
