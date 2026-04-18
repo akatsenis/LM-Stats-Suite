@@ -686,6 +686,18 @@ def plot_regression_advanced(data_df, model, grid_df, confidence=0.95, interval=
     return fig, crossing_x
 
 
+
+def doe_formula(safe_factors, model_type="interaction"):
+    terms = list(safe_factors)
+    if model_type in ["interaction", "quadratic"]:
+        for i in range(len(safe_factors)):
+            for j in range(i + 1, len(safe_factors)):
+                terms.append(f"{safe_factors[i]}:{safe_factors[j]}")
+    if model_type == "quadratic":
+        for f in safe_factors:
+            terms.append(f"I({f}**2)")
+    return "Response ~ " + " + ".join(terms)
+
 def draw_conf_ellipse(scores, ax, edgecolor=PRIMARY_COLOR, facecolor=None, plot_key="PCA score plot"):
     scores = np.asarray(scores, dtype=float)
     if scores.shape[0] < 3:
