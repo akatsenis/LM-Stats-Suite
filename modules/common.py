@@ -69,24 +69,71 @@ def init_page(page_title="lm Stats"):
     inject_css()
 
 
+import streamlit as st
+
 def inject_css():
     st.markdown(
         """
         <style>
+        /* Base Container */
         .block-container {padding-top: 0.9rem; padding-bottom: 2rem;}
-        .app-header {border:1px solid #e2e8f0; border-radius:14px; padding:16px 20px;
-            background: linear-gradient(90deg, #f8fafc 0%, #ffffff 100%); margin-bottom: 1rem;
-            box-shadow: 0 1px 4px rgba(15,23,42,0.05);}
-        .app-title {font-size: 1.75rem; font-weight: 700; margin-bottom: 0.2rem; color:#0f172a;}
-        .app-sub {font-size: 0.96rem; color:#475569;}
-        .report-table table {width:100%; border-collapse:collapse; background:white; font-size:0.95rem;}
+        
+        /* Premium Header with Left Accent */
+        .app-header {
+            border: 1px solid #e2e8f0; 
+            border-left: 5px solid #3b82f6; /* Blue accent line */
+            border-radius: 14px; 
+            padding: 16px 20px;
+            background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%); 
+            margin-bottom: 1.5rem; 
+            margin-top: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(15,23,42,0.05), 0 2px 4px -1px rgba(15,23,42,0.03);
+        }
+        
+        /* Subtle Gradient Text for Title */
+        .app-title {
+            font-size: 1.75rem; 
+            font-weight: 800; 
+            margin-bottom: 0.2rem; 
+        }
+        
+        /* Apply the gradient ONLY to the text span */
+        .title-text {
+            background: -webkit-linear-gradient(45deg, #0f172a, #334155);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .app-sub {font-size: 0.96rem; color:#475569; font-weight: 500;}
+        
+        /* Table Enhancements */
+        .report-table table {width:100%; border-collapse:collapse; background:white; font-size:0.95rem; border-radius: 8px; overflow: hidden;}
         .report-table caption {text-align:left; font-weight:700; font-size:1rem; color:#111827; margin-bottom:0.55rem;}
-        .report-table thead th {border-top:2px solid #111827; border-bottom:1px solid #111827;
-            padding:8px 12px; text-align:center; background:#f8fafc; color:#111827;}
-        .report-table tbody td {padding:8px 12px; text-align:center; border:none;}
+        .report-table thead th {
+            border-top:2px solid #111827; 
+            border-bottom:2px solid #111827;
+            padding:10px 12px; text-align:center; background:#f8fafc; color:#111827;
+        }
+        .report-table tbody td {padding:10px 12px; text-align:center; border-bottom: 1px solid #f1f5f9;}
+        /* Table Row Hover Effect */
+        .report-table tbody tr:hover {background-color: #f8fafc; transition: background-color 0.2s ease;}
         .report-table tbody tr:last-child td {border-bottom:2px solid #111827;}
         .report-caption {font-size:0.85rem; color:#475569; margin-top:-0.5rem; margin-bottom:0.75rem;}
-        div[data-testid='stMetric'] {border:1px solid #e2e8f0; border-radius:12px; padding:10px 12px; background:#fff;}
+        
+        /* Interactive Metric Cards */
+        div[data-testid='stMetric'] {
+            border:1px solid #e2e8f0; 
+            border-radius:12px; 
+            padding:12px 16px; 
+            background:#fff;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+            transition: all 0.3s ease; /* Smooth animation setup */
+        }
+        /* Hover state for Metric Cards */
+        div[data-testid='stMetric']:hover {
+            transform: translateY(-3px); /* Move up 3 pixels */
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -2px rgba(0,0,0,0.04); /* Deeper shadow */
+            border-color: #cbd5e1;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1029,12 +1076,12 @@ def dis_plot_bootstrap_f2_distribution(boot_vals, observed_f2, ci_low=None, ci_h
     if ci_high is not None: ax.axvline(ci_high, color=cfg["tertiary_color"], linestyle=cfg["aux_line_style"], linewidth=cfg["line_width"])
     apply_ax_style(ax, title, "f2 values", "Density", legend=False, plot_key="Dissolution comparison"); ax.set_xlim(x_min, x_max)
     y_top = float(ax.get_ylim()[1]) if ax.get_ylim()[1] > 0 else 1.0
-    text_kw = dict(rotation=90, va="top", fontsize=9, clip_on=False)
-    ax.text(mean_boot, y_top * 0.98, f"Mean = {mean_boot:.2f}", ha="right", color=cfg["primary_color"], bbox=dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor=cfg["primary_color"], alpha=0.65), **text_kw)
+    text_kw = dict(rotation=90, va="top", fontsize=10, clip_on=False)
+    ax.text(0.9975 * mean_boot, y_top * 0.60, f"Mean = {mean_boot:.2f}", ha="right", color=cfg["primary_color"], **text_kw)
     if ci_low is not None:
-        ax.text(ci_low, y_top * 0.96, f"Lower CI = {ci_low:.2f}", ha="right", color=cfg["tertiary_color"], bbox=dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor=cfg["tertiary_color"], alpha=0.65), **text_kw)
+        ax.text(0.995 * ci_low , y_top * 0.60, f"Lower CI = {ci_low:.2f}", ha="right", color=cfg["tertiary_color"], **text_kw)
     if ci_high is not None:
-        ax.text(ci_high, y_top * 0.94, f"Upper CI = {ci_high:.2f}", ha="left", color=cfg["tertiary_color"], bbox=dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor=cfg["tertiary_color"], alpha=0.65), **text_kw)
+        ax.text(1.005 * ci_high, y_top * 0.60, f"Upper CI = {ci_high:.2f}", ha="left", color=cfg["tertiary_color"], **text_kw)
     return fig
 
 __all__ = [name for name in globals() if not name.startswith('_')]
