@@ -95,6 +95,10 @@ def inject_css():
             font-size: 1.75rem; 
             font-weight: 800; 
             margin-bottom: 0.2rem; 
+        }
+        
+        /* Apply the gradient ONLY to the text span */
+        .title-text {
             background: -webkit-linear-gradient(45deg, #0f172a, #334155);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
