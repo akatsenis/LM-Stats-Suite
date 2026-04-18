@@ -1631,25 +1631,25 @@ def render():
     # -------------------------------------------------
     if tool == "08 - PCA Analysis":
         app_header("🌐 App 08 - PCA Analysis", "Reduce multivariate data to principal components and visualize scores and loadings.")
-        c_sample1, c_sample2 = st.columns([1, 5])
-        with c_sample1:
-            st.button("Sample Data", key="sample_pca", on_click=load_sample_text, args=("pca_input", "pca"))
-        with c_sample2:
-            data_input = st.text_area("Paste data with headers", height=240, key="pca_input")
+        data_input = st.text_area("Paste data with headers", height=240)
         decimals = st.slider("Decimals", 1, 8, DEFAULT_DECIMALS, key="pca_dec")
         if data_input:
             try:
                 df = parse_pasted_table(data_input, header=True)
                 num_cols = get_numeric_columns(df)
                 all_cols = list(df.columns)
-                c1, c2, c3 = st.columns([1.25, 1, 1])
+                c1, c2, c3, c4, c5 = st.columns([1.2, 1, 1, 0.9, 1.1])
                 with c1:
                     vars_sel = st.multiselect("Numeric variables", num_cols, default=num_cols)
                 with c2:
                     label_col = st.selectbox("Label column (optional)", ["(None)"] + all_cols)
                 with c3:
                     group_col = st.selectbox("Group column (optional)", ["(None)"] + [c for c in all_cols if c != label_col])
-    
+                with c4:
+                    show_ellipses = st.checkbox("Show ellipses", value=True)
+                with c5:
+                    ellipse_mode = st.selectbox("Ellipse mode", ["Overall", "By group", "Both"], disabled=not show_ellipses)
+
                 if len(vars_sel) >= 2:
                     X = df[vars_sel].apply(to_numeric).dropna()
                     Z = (X - X.mean()) / X.std(ddof=1)
@@ -1666,73 +1666,55 @@ def render():
                     load_df = pd.DataFrame({"Variable": vars_sel, "PC1": loadings[:, 0], "PC2": loadings[:, 1]})
                     report_table(eig, "Eigenvalues and explained variance", decimals)
                     report_table(load_df, "Loading matrix", decimals)
-    
+
                     scores_df = pd.DataFrame({"PC1": scores[:, 0], "PC2": scores[:, 1]}, index=X.index)
                     if label_col != "(None)":
                         scores_df["Label"] = df.loc[X.index, label_col].astype(str).values
                     if group_col != "(None)":
                         scores_df["Group"] = df.loc[X.index, group_col].astype(str).values
-    
+
                     score_cfg = common.safe_get_plot_cfg("PCA score plot")
                     fig_scores, ax = plt.subplots(figsize=(score_cfg["fig_w"], score_cfg["fig_h"]))
                     color_cycle = [score_cfg["primary_color"], score_cfg["secondary_color"], score_cfg["tertiary_color"], "#9467bd", "#8c564b", "#e377c2"]
-    
+
                     if group_col != "(None)":
                         unique_groups = list(scores_df["Group"].unique())
                         for i, grp in enumerate(unique_groups):
                             col = color_cycle[i % len(color_cycle)]
                             m = scores_df["Group"] == grp
-                            ax.scatter(
-                                scores_df.loc[m, "PC1"],
-                                scores_df.loc[m, "PC2"],
-                                s=score_cfg["marker_size"],
-                                color=col,
-                                label=str(grp),
-                            )
-                            draw_conf_ellipse(
-                                scores_df.loc[m, ["PC1", "PC2"]].to_numpy(),
-                                ax,
-                                edgecolor=col,
-                                facecolor=col,
-                                plot_key="PCA score plot",
-                            )
+                            ax.scatter(scores_df.loc[m, "PC1"], scores_df.loc[m, "PC2"], s=score_cfg["marker_size"], color=col, label=str(grp))
+                            if show_ellipses and ellipse_mode in ["By group", "Both"]:
+                                draw_conf_ellipse(scores_df.loc[m, ["PC1", "PC2"]].to_numpy(), ax, edgecolor=col, facecolor=col, plot_key="PCA score plot")
+                        if show_ellipses and ellipse_mode in ["Overall", "Both"]:
+                            draw_conf_ellipse(scores_df[["PC1", "PC2"]].to_numpy(), ax, edgecolor="#111827", facecolor="#111827", plot_key="PCA score plot")
                     else:
                         col = score_cfg["primary_color"]
                         ax.scatter(scores_df["PC1"], scores_df["PC2"], s=score_cfg["marker_size"], color=col, label="Scores")
-                        draw_conf_ellipse(scores_df[["PC1", "PC2"]].to_numpy(), ax, edgecolor=col, facecolor=col, plot_key="PCA score plot")
-    
+                        if show_ellipses:
+                            draw_conf_ellipse(scores_df[["PC1", "PC2"]].to_numpy(), ax, edgecolor=col, facecolor=col, plot_key="PCA score plot")
+
                     if label_col != "(None)":
                         for _, row in scores_df.iterrows():
                             ax.text(row["PC1"], row["PC2"], str(row["Label"]), fontsize=8)
-    
+
                     ax.axhline(0, color="#64748b", lw=score_cfg["aux_line_width"], ls=score_cfg["aux_line_style"])
                     ax.axvline(0, color="#64748b", lw=score_cfg["aux_line_width"], ls=score_cfg["aux_line_style"])
                     apply_ax_style(ax, "PCA score plot", f"PC1 ({exp[0]:.1f}% var)", f"PC2 ({exp[1]:.1f}% var)", legend=(group_col != "(None)"), plot_key="PCA score plot")
                     st.pyplot(fig_scores)
-    
+
                     load_cfg = common.safe_get_plot_cfg("PCA loading plot")
                     fig_load, ax2 = plt.subplots(figsize=(load_cfg["fig_w"], load_cfg["fig_h"]))
                     ax2.axhline(0, color="#64748b", lw=load_cfg["aux_line_width"], ls=load_cfg["aux_line_style"])
                     ax2.axvline(0, color="#64748b", lw=load_cfg["aux_line_width"], ls=load_cfg["aux_line_style"])
                     for i, var in enumerate(vars_sel):
-                        ax2.arrow(
-                            0,
-                            0,
-                            loadings[i, 0],
-                            loadings[i, 1],
-                            head_width=load_cfg["arrow_size"],
-                            length_includes_head=True,
-                            color=load_cfg["primary_color"],
-                            lw=load_cfg["line_width"],
-                            ls=load_cfg["line_style"],
-                        )
+                        ax2.arrow(0, 0, loadings[i, 0], loadings[i, 1], head_width=load_cfg["arrow_size"], length_includes_head=True, color=load_cfg["primary_color"], lw=load_cfg["line_width"], ls=load_cfg["line_style"])
                         ax2.text(loadings[i, 0], loadings[i, 1], var)
                     lim = max(1.1, np.max(np.abs(loadings)) * 1.2)
                     ax2.set_xlim(-lim, lim)
                     ax2.set_ylim(-lim, lim)
                     apply_ax_style(ax2, "PCA loading plot", "PC1", "PC2", plot_key="PCA loading plot")
                     st.pyplot(fig_load)
-    
+
                     export_results(
                         prefix="pca_analysis",
                         report_title="Statistical Analysis Report",
@@ -1747,6 +1729,7 @@ def render():
                     )
             except Exception as e:
                 st.error(str(e))
+
     
     
     
