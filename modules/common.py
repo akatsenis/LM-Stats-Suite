@@ -47,7 +47,8 @@ PLOT_STYLE_KEYS = [
     "Dissolution bootstrap distribution", "Two-sample box plot", "Two-sample density plot",
     "Two-way ANOVA interaction", "Two-way ANOVA residual plot", "Two-way ANOVA Q-Q plot",
     "Tolerance/CI box plot", "PCA score plot", "PCA loading plot", "DoE contour",
-    "DoE surface", "DoE residual plot", "DoE Q-Q plot", "Residual plot", "Q-Q plot",
+    "DoE surface", "DoE residual plot", "DoE Q-Q plot", "DoE interaction", "DoE residual diagnostics",
+    "DoE predicted vs observed", "DoE overlay contour", "Residual plot", "Q-Q plot",
 ]
 LINE_STYLE_MAP = {"Solid": "-", "Dash": "--", "Dot": ":", "Dash-dot": "-."}
 DEFAULT_STYLE_CFG = {
