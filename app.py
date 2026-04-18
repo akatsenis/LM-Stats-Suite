@@ -1,21 +1,15 @@
-from modules.common import init_page
 import streamlit as st
+from modules.common import inject_css
 
-init_page("lm Stats Suite")
+st.set_page_config(page_title="Labomed Projects", page_icon="🔬", layout="wide")
+inject_css()
 
-st.title("Welcome")
-st.markdown(
-    """
-    This app brings together practical statistical and experimental design tools for analytical, formulation, and development work, including 
-    - descriptive statistics
-    - regression
-    - shelf-life analysis
-    - dissolution comparison
-    - hypothesis testing
-    - ANOVA
-    - PCA
-    - DoE
-    
-    The pages are organized into Stats Suite and DoE Studio so all analyses stay under one app while remaining easy to navigate and maintain.
-    """
+pg = st.navigation(
+    [
+        st.Page("views/welcome.py", title="Welcome", icon="🏠", default=True),
+        st.Page("views/stats_suite.py", title="Stats Suite", icon="📊"),
+        st.Page("views/ivivc_suite.py", title="IVIVC Suite", icon="💊"),
+        st.Page("views/doe_studio.py", title="DoE Studio", icon="🧪"),
+    ]
 )
+pg.run()
