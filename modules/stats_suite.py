@@ -361,9 +361,10 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
         ax.hlines(y_sep, x_lo*0.97, x_hi*1.03, color="#d1d5db", lw=0.8)
 
     # Dynamically spread out markers based on sample count.
-    # Max span is 0.75 to prevent bleeding (row centers are 0.90 apart).
+    # Uses a wide gap (0.30) for few lots, capped at a maximum span of 0.75 
+    # so they automatically step closer together when there are many lots.
     if len(stats_list) > 1:
-        total_span = min(0.75, 0.08 * (len(stats_list) - 1))
+        total_span = min(0.75, 0.30 * (len(stats_list) - 1))
         offsets = np.linspace(total_span / 2, -total_span / 2, len(stats_list))
     else:
         offsets = np.array([0.0])
