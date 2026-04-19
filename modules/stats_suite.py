@@ -294,7 +294,7 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
     )
 
     density_label_y = 6.6
-    density_base_y = 6.00
+    density_base_y = 6.15
     density_height = 0.52
     row_centers = [5.70, 4.80, 3.90, 3.00, 2.10, 1.20]
     if interval_side == "two-sided":
