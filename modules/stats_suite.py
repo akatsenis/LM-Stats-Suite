@@ -356,7 +356,7 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
         ax.plot(xgrid, density_base_y + dens, color=col, lw=cfg["line_width"], ls=cfg["line_style"])
     ax.hlines(density_base_y, x_lo, x_hi, color="#111827", lw=0.8)
 
-    separators = [6.50, 5.25, 4.35, 3.45, 2.55, 1.65, 0.75]
+    separators = [6.15, 5.25, 4.35, 3.45, 2.55, 1.65, 0.75]
     for y_sep in separators:
         ax.hlines(y_sep, x_lo, x_hi, color="#d1d5db", lw=0.8)
 
