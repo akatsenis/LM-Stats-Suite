@@ -2401,7 +2401,7 @@ def render():
                             key=f"weibull_editor_{_slugify(model_name)}",
                             hide_index=True,
                             num_rows="fixed",
-                            use_container_width=True,
+                            width='stretch',
                         )
                         parameter_tables[model_name] = _parameter_wide_to_long(model_name, pd.DataFrame(editor))
 

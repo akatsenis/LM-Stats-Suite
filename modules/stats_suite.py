@@ -181,6 +181,15 @@ def _one_sample_summary(arr, label, ci_conf=0.95, tol_p=0.99, tol_confidence=0.9
     }
 
 
+def _strong_normality_concern(ad_p, shapiro_p, alpha=0.05):
+    checks = []
+    if pd.notna(ad_p):
+        checks.append(float(ad_p) < alpha)
+    if pd.notna(shapiro_p):
+        checks.append(float(shapiro_p) < alpha)
+    return bool(checks) and all(checks)
+
+
 def _f_test_equal_var(a, b):
     a = np.asarray(a, dtype=float); b = np.asarray(b, dtype=float)
     v1 = np.var(a, ddof=1); v2 = np.var(b, ddof=1)
@@ -575,7 +584,7 @@ def render():
             else:
                 st.success(f"Loaded {df.shape[0]} rows × {df.shape[1]} columns")
                 with st.expander("Preview data"):
-                    st.dataframe(df, use_container_width=True)
+                    st.dataframe(df, width='stretch')
                 numeric_cols = get_numeric_columns(df)
                 if len(numeric_cols) == 0:
                     st.error("No numeric columns were detected.")
