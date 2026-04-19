@@ -474,8 +474,10 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
         header_y = top_y - 0.010
         row_start_y = top_y - 0.075
 
-        col_left = 0.50 if block_len >= 5 else 0.46
-        col_positions = np.linspace(col_left, 0.97, block_len) if block_len > 1 else np.array([0.72])
+        # Pull values closer to the headers (0.32) and stretch them across the empty space (0.98)
+        col_left = 0.32
+        col_right = 0.98
+        col_positions = np.linspace(col_left, col_right, block_len) if block_len > 1 else np.array([(col_left + col_right) / 2])
 
         header_fs = 8.6 if block_len >= 5 else 9.3
         body_fs = 8.0 if block_len >= 5 else 8.8
