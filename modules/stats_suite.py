@@ -151,7 +151,7 @@ def regression_anova_and_coefficients_local(x, y, alpha=0.05):
     }
 
 
-def _one_sample_summary(arr, label, ci_conf=0.95, tol_p=0.99, tol_confidence=0.95):
+def _one_sample_summary(arr, label, ci_conf=0.95, tol_p=0.99, tol_confidence=0.95, interval_side="two-sided"):
     arr = np.asarray(arr, dtype=float)
     n = len(arr)
     mean = np.mean(arr)
@@ -159,7 +159,8 @@ def _one_sample_summary(arr, label, ci_conf=0.95, tol_p=0.99, tol_confidence=0.9
     se = sd / np.sqrt(n) if n > 1 else np.nan
     tcrit = t.ppf(1 - (1 - ci_conf) / 2, n - 1) if n > 1 else np.nan
     ci_half = tcrit * se if n > 1 else np.nan
-    _, tol_lower, tol_upper = tolerance_interval_normal(arr, p=tol_p, conf=tol_confidence, two_sided=True)
+    two_sided = interval_side == "two-sided"
+    _, tol_lower, tol_upper = tolerance_interval_normal(arr, p=tol_p, conf=tol_confidence, two_sided=two_sided)
     ad_stat, ad_p = normal_ad(arr) if n >= 8 else (np.nan, np.nan)
     try:
         sh_stat, sh_p = stats.shapiro(arr) if 3 <= n <= 5000 else (np.nan, np.nan)
@@ -431,6 +432,10 @@ def _paired_series(ref_series, sample_series):
 def _pairwise_assessment_tables(ref_label, numeric_series, selected_cols, alpha=0.05, conf=0.95, include_paired=False):
     variance_rows = []
     test_rows = []
+    paired_normality_rows = []
+    include_welch_any = False
+    include_mw_any = False
+    include_wilcoxon_any = False
     ref_series = to_numeric(numeric_series[ref_label])
     ref = ref_series.dropna().to_numpy(dtype=float)
     ci_label_lo = f"{int(round(conf * 100))}% CI Lower"
@@ -443,10 +448,9 @@ def _pairwise_assessment_tables(ref_label, numeric_series, selected_cols, alpha=
             lev_stat, lev_p = stats.levene(ref, arr, center="mean")
         except Exception:
             lev_stat, lev_p = np.nan, np.nan
-        var_decision = "No strong equal-variance concern"
         chosen_p = lev_p if pd.notna(lev_p) else f_p
-        if pd.notna(chosen_p) and chosen_p < alpha:
-            var_decision = "Check unequal variance"
+        unequal_var_concern = pd.notna(chosen_p) and chosen_p < alpha
+        var_decision = "Strong unequal-variance concern" if unequal_var_concern else "No strong equal-variance concern"
         variance_rows.append({
             "Reference": ref_label,
             "Comparison": label,
@@ -472,42 +476,77 @@ def _pairwise_assessment_tables(ref_label, numeric_series, selected_cols, alpha=
             p_mw = float(stats.mannwhitneyu(ref, arr, alternative="two-sided").pvalue)
         except Exception:
             p_mw = np.nan
+        ref_ad_p = normal_ad(ref)[1] if len(ref) >= 3 else np.nan
+        ref_sh_p = stats.shapiro(ref).pvalue if 3 <= len(ref) <= 5000 else np.nan
+        samp_ad_p = normal_ad(arr)[1] if len(arr) >= 3 else np.nan
+        samp_sh_p = stats.shapiro(arr).pvalue if 3 <= len(arr) <= 5000 else np.nan
+        normality_concern = _strong_normality_concern(ref_ad_p, ref_sh_p, alpha) or _strong_normality_concern(samp_ad_p, samp_sh_p, alpha)
         diff, ci_lower, ci_upper = _welch_mean_diff_ci(ref, arr, conf=conf)
         row = {
             "Reference": ref_label,
             "Comparison": label,
             "Mean (Reference)": np.mean(ref) if len(ref) else np.nan,
             "Mean (Sample)": np.mean(arr) if len(arr) else np.nan,
-            "Mean Difference (Ref - Sample)": diff,
-            ci_label_lo: ci_lower,
-            ci_label_hi: ci_upper,
             "Student t-test P-Value": p_student,
-            "Welch t-test P-Value": p_welch,
-            "Mann-Whitney P-Value": p_mw,
         }
+        if include_paired:
+            row["Mean Difference (Ref - Sample)"] = diff
+            row[ci_label_lo] = ci_lower
+            row[ci_label_hi] = ci_upper
+        if unequal_var_concern:
+            row["Welch t-test P-Value"] = p_welch
+            include_welch_any = True
+        if normality_concern:
+            row["Mann-Whitney P-Value"] = p_mw
+            include_mw_any = True
         if include_paired:
             pairs = _paired_series(ref_series, sample_series)
             row["Complete Pairs"] = len(pairs)
             if len(pairs) >= 2:
                 diffs = pairs.iloc[:, 0].to_numpy(dtype=float) - pairs.iloc[:, 1].to_numpy(dtype=float)
+                try:
+                    ad_stat_d, ad_p_d = normal_ad(diffs) if len(diffs) >= 3 else (np.nan, np.nan)
+                except Exception:
+                    ad_stat_d, ad_p_d = np.nan, np.nan
+                try:
+                    sh_stat_d, sh_p_d = stats.shapiro(diffs) if 3 <= len(diffs) <= 5000 else (np.nan, np.nan)
+                except Exception:
+                    sh_stat_d, sh_p_d = np.nan, np.nan
+                paired_normality_rows.append({
+                    "Sample": f"Difference ({ref_label} - {label})",
+                    "Anderson-Darling Statistic": ad_stat_d,
+                    "Anderson-Darling P-Value": ad_p_d,
+                    "Shapiro-Wilk Statistic": sh_stat_d,
+                    "Shapiro-Wilk P-Value": sh_p_d,
+                    "Comment": "No strong normality concern" if not _strong_normality_concern(ad_p_d, sh_p_d, alpha) else "Strong normality concern",
+                })
                 row["Paired Mean Difference"] = np.mean(diffs)
                 try:
                     row["Paired t-test P-Value"] = float(stats.ttest_rel(pairs.iloc[:, 0], pairs.iloc[:, 1]).pvalue)
                 except Exception:
                     row["Paired t-test P-Value"] = np.nan
-                try:
-                    if np.allclose(diffs, 0.0):
+                diff_normality_concern = _strong_normality_concern(ad_p_d, sh_p_d, alpha)
+                if diff_normality_concern:
+                    try:
+                        if np.allclose(diffs, 0.0):
+                            row["Wilcoxon Signed-Rank P-Value"] = np.nan
+                        else:
+                            row["Wilcoxon Signed-Rank P-Value"] = float(stats.wilcoxon(pairs.iloc[:, 0], pairs.iloc[:, 1]).pvalue)
+                    except Exception:
                         row["Wilcoxon Signed-Rank P-Value"] = np.nan
-                    else:
-                        row["Wilcoxon Signed-Rank P-Value"] = float(stats.wilcoxon(pairs.iloc[:, 0], pairs.iloc[:, 1]).pvalue)
-                except Exception:
-                    row["Wilcoxon Signed-Rank P-Value"] = np.nan
+                    include_wilcoxon_any = True
             else:
                 row["Paired Mean Difference"] = np.nan
                 row["Paired t-test P-Value"] = np.nan
-                row["Wilcoxon Signed-Rank P-Value"] = np.nan
         test_rows.append(row)
-    return pd.DataFrame(variance_rows), pd.DataFrame(test_rows)
+    tests_df = pd.DataFrame(test_rows)
+    if not include_welch_any and "Welch t-test P-Value" in tests_df.columns:
+        tests_df = tests_df.drop(columns=["Welch t-test P-Value"])
+    if not include_mw_any and "Mann-Whitney P-Value" in tests_df.columns:
+        tests_df = tests_df.drop(columns=["Mann-Whitney P-Value"])
+    if not include_wilcoxon_any and "Wilcoxon Signed-Rank P-Value" in tests_df.columns:
+        tests_df = tests_df.drop(columns=["Wilcoxon Signed-Rank P-Value"])
+    return pd.DataFrame(variance_rows), tests_df, pd.DataFrame(paired_normality_rows)
 
 def render():
     render_display_settings()
@@ -528,6 +567,7 @@ def render():
         mean_ci_conf = st.slider("Mean CI confidence (%)", 80, 99, 95, 1, key="desc_mean_ci")
         tol_cov = st.slider("Tolerance interval coverage (%)", 80, 99, 99, 1, key="desc_tol_cov")
         tol_conf = st.slider("Tolerance interval confidence (%)", 80, 99, 95, 1, key="desc_tol_conf")
+        interval_side = st.selectbox("Interval side", ["two-sided", "upper", "lower"], index=0, format_func=lambda x: {"two-sided": "Two-sided", "upper": "Upper one-sided", "lower": "Lower one-sided"}[x], key="desc_interval_side")
         if data_input:
             df = parse_pasted_table(data_input, header=True)
             if df is None or df.empty:
@@ -565,7 +605,7 @@ def render():
                         conf = mean_ci_conf / 100
                         stats_objs = []
                         for label, arr in sample_arrays:
-                            s = _one_sample_summary(arr, label, ci_conf=conf, tol_p=tol_cov / 100, tol_confidence=tol_conf / 100)
+                            s = _one_sample_summary(arr, label, ci_conf=conf, tol_p=tol_cov / 100, tol_confidence=tol_conf / 100, interval_side=interval_side)
                             s["raw"] = arr
                             stats_objs.append(s)
                         ref = sample_arrays[0][1]
@@ -593,12 +633,14 @@ def render():
                             "Range": s["max"] - s["min"],
                         } for s in stats_objs])
 
+                        ci_title = f"{mean_ci_conf}% CI" if interval_side == "two-sided" else f"{mean_ci_conf}% {interval_side.title()} CI"
+                        ti_title = f"{tol_cov}%/{tol_conf}% TI" if interval_side == "two-sided" else f"{tol_cov}%/{tol_conf}% {interval_side.title()} TI"
                         interval_tbl = pd.DataFrame([{
                             "Sample": s["label"],
-                            f"{mean_ci_conf}% CI Lower": s["ci_lower"],
-                            f"{mean_ci_conf}% CI Upper": s["ci_upper"],
-                            f"{tol_cov}%/{tol_conf}% TI Lower": s["tol_lower"],
-                            f"{tol_cov}%/{tol_conf}% TI Upper": s["tol_upper"],
+                            f"{ci_title} Lower": s["ci_lower"],
+                            f"{ci_title} Upper": s["ci_upper"],
+                            f"{ti_title} Lower": s["tol_lower"],
+                            f"{ti_title} Upper": s["tol_upper"],
                         } for s in stats_objs])
 
                         normality_tbl = pd.DataFrame([{
@@ -613,19 +655,16 @@ def render():
                         table_map = {
                             "Descriptive Summary": desc_tbl,
                             "Confidence and Tolerance Intervals": interval_tbl,
-                            "Normality Review": normality_tbl,
                         }
 
                         info_box("This table summarizes the main descriptive statistics for each selected sample, including center, spread, and quartiles.")
                         report_table(desc_tbl, "Descriptive summary", decimals)
                         info_box("These intervals show the uncertainty around each sample mean and the expected range covering the chosen proportion of the population.")
                         report_table(interval_tbl, "Confidence and tolerance intervals", decimals)
-                        info_box("These normality checks support the visual interpretation of the data distribution and help guide parametric test usage.")
-                        report_table(normality_tbl, "Normality review", decimals)
 
                         if not is_single:
                             anova_tbl, model_tbl = _anova_multi_groups(sample_arrays)
-                            variance_tbl, tests_tbl = _pairwise_assessment_tables(
+                            variance_tbl, tests_tbl, paired_norm_tbl = _pairwise_assessment_tables(
                                 ref_col,
                                 numeric_series,
                                 selected_cols,
@@ -633,23 +672,29 @@ def render():
                                 conf=conf,
                                 include_paired=paired_compare,
                             )
-                            table_map["ANOVA"] = anova_tbl
-                            table_map["ANOVA Model Summary"] = model_tbl
+                            if paired_compare and not paired_norm_tbl.empty:
+                                normality_tbl = pd.concat([normality_tbl, paired_norm_tbl], ignore_index=True)
                             if not variance_tbl.empty:
                                 table_map["Equal Variance Checks"] = variance_tbl
+                            table_map["ANOVA"] = anova_tbl
+                            table_map["ANOVA Model Summary"] = model_tbl
                             if not tests_tbl.empty:
                                 table_map["Reference Comparison Tests"] = tests_tbl
+                            if not variance_tbl.empty:
+                                info_box("These equal-variance checks compare each selected sample against the reference using both the F test and Levene's test. They help you judge whether classical equal-variance methods are reasonable.")
+                                report_table(variance_tbl, "Equal variance checks", decimals)
                             info_box("This ANOVA table tests whether the selected sample means differ overall across all included groups.")
                             report_table(anova_tbl, "ANOVA", decimals)
                             info_box("This summary reports the pooled within-group variation and the fraction of total variability explained by between-sample differences.")
                             report_table(model_tbl, "Model summary (ANOVA)", decimals)
-                            if not variance_tbl.empty:
-                                info_box("These equal-variance checks compare each selected sample against the reference using both the F test and Levene's test. They help you judge whether classical equal-variance methods are reasonable.")
-                                report_table(variance_tbl, "Equal variance checks", decimals)
                             if not tests_tbl.empty:
-                                pair_msg = " Paired t-test and Wilcoxon signed-rank results are also shown using complete row-wise pairs because paired analysis was requested." if paired_compare else ""
-                                info_box("These reference-based hypothesis tests compare each selected sample against the reference using Student's t-test, Welch's t-test, and Mann-Whitney. This table is especially useful when normality or equal-variance assumptions are doubtful." + pair_msg)
+                                pair_msg = " Paired tests are also shown using complete row-wise pairs because paired analysis was requested." if paired_compare else ""
+                                info_box("These reference-based hypothesis tests compare each selected sample against the reference using Student's t-test, and, only when justified by diagnostics, Welch's t-test, Mann-Whitney, or Wilcoxon signed-rank." + pair_msg)
                                 report_table(tests_tbl, "Reference comparison tests", decimals)
+
+                        table_map["Normality Review"] = normality_tbl
+                        info_box("These normality checks support the visual interpretation of the data distribution and help guide parametric test usage. When paired analysis is requested, the normality of paired differences is also included.")
+                        report_table(normality_tbl, "Normality review", decimals)
 
                         labels = [s["label"] for s in stats_objs]
                         data_list = [s["raw"] for s in stats_objs]
