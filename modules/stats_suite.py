@@ -158,10 +158,30 @@ def _one_sample_summary(arr, label, ci_conf=0.95, tol_p=0.99, tol_confidence=0.9
     mean = np.mean(arr)
     sd = np.std(arr, ddof=1) if n > 1 else np.nan
     se = sd / np.sqrt(n) if n > 1 else np.nan
-    tcrit = t.ppf(1 - (1 - ci_conf) / 2, n - 1) if n > 1 else np.nan
-    ci_half = tcrit * se if n > 1 else np.nan
+    if n > 1 and pd.notna(se):
+        if interval_side == "two-sided":
+            tcrit = t.ppf(1 - (1 - ci_conf) / 2, n - 1)
+            ci_lower = mean - tcrit * se
+            ci_upper = mean + tcrit * se
+        elif interval_side == "upper":
+            tcrit = t.ppf(ci_conf, n - 1)
+            ci_lower = np.nan
+            ci_upper = mean + tcrit * se
+        else:
+            tcrit = t.ppf(ci_conf, n - 1)
+            ci_lower = mean - tcrit * se
+            ci_upper = np.nan
+    else:
+        tcrit = np.nan
+        ci_lower = np.nan
+        ci_upper = np.nan
+    ci_half = (ci_upper - mean) if interval_side == "two-sided" and pd.notna(ci_upper) else np.nan
+
     two_sided = interval_side == "two-sided"
-    _, tol_lower, tol_upper = tolerance_interval_normal(arr, p=tol_p, conf=tol_confidence, two_sided=two_sided)
+    _, tol_lower_raw, tol_upper_raw = tolerance_interval_normal(arr, p=tol_p, conf=tol_confidence, two_sided=two_sided)
+    tol_lower = tol_lower_raw if interval_side in ["two-sided", "lower"] else np.nan
+    tol_upper = tol_upper_raw if interval_side in ["two-sided", "upper"] else np.nan
+
     ad_stat, ad_p = normal_ad(arr) if n >= 8 else (np.nan, np.nan)
     try:
         sh_stat, sh_p = stats.shapiro(arr) if 3 <= n <= 5000 else (np.nan, np.nan)
@@ -177,10 +197,10 @@ def _one_sample_summary(arr, label, ci_conf=0.95, tol_p=0.99, tol_confidence=0.9
         "label": label, "n": n, "sum": np.sum(arr), "mean": mean, "sd": sd, "var": np.var(arr, ddof=1) if n > 1 else np.nan,
         "min": np.min(arr), "q1": q1, "median": med, "q3": q3, "max": np.max(arr),
         "whisker_lower": whisker_lower, "whisker_upper": whisker_upper,
-        "ci_half": ci_half, "ci_lower": mean - ci_half if pd.notna(ci_half) else np.nan, "ci_upper": mean + ci_half if pd.notna(ci_half) else np.nan,
+        "ci_half": ci_half, "ci_lower": ci_lower, "ci_upper": ci_upper,
         "tol_lower": tol_lower, "tol_upper": tol_upper, "ad_stat": ad_stat, "ad_p": ad_p, "shapiro_stat": sh_stat, "shapiro_p": sh_p,
+        "interval_side": interval_side,
     }
-
 
 def _strong_normality_concern(ad_p, shapiro_p, alpha=0.05):
     checks = []
@@ -231,7 +251,7 @@ def _acceptance_band(ref, test, alpha_level=0.05):
     return m1 - tcrit * se_diff, m1 + tcrit * se_diff
 
 
-def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf, shaded_range=None, shaded_label=None):
+def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf, interval_side="two-sided", shaded_range=None, shaded_label=None):
     cfg = common.safe_get_plot_cfg("Descriptive summary")
     base_colors = [cfg["primary_color"], cfg["secondary_color"], cfg["tertiary_color"], "#9467bd", "#8c564b", "#e377c2", "#17becf", "#bcbd22"]
     colors = [base_colors[i % len(base_colors)] for i in range(len(stats_list))]
@@ -270,30 +290,40 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
     density_base_y = 6.50
     density_height = 0.52
     row_centers = [5.70, 4.80, 3.90, 3.00, 2.10, 1.20]
-    row_names = [
-        "Whisker Min/Max",
-        "Min/Max",
-        "Mean ± 3SD",
-        "IQR (Q1, Q3)",
-        f"{tol_cov}%/{tol_conf}% Tol. Interval",
-        f"{mean_ci_conf}% CI for Mean",
-    ]
+    if interval_side == "two-sided":
+        row_names = [
+            "Whisker Min/Max",
+            "Min/Max",
+            "Mean ± 3SD",
+            "IQR (Q1, Q3)",
+            f"{tol_cov}%/{tol_conf}% Tol. Interval",
+            f"{mean_ci_conf}% CI for Mean",
+        ]
+    elif interval_side == "upper":
+        row_names = [
+            "Whisker Min/Max",
+            "Min/Max",
+            "Mean ± 3SD",
+            "IQR (Q1, Q3)",
+            f"{tol_cov}%/{tol_conf}% Upper TI",
+            f"{mean_ci_conf}% Upper CI for Mean",
+        ]
+    else:
+        row_names = [
+            "Whisker Min/Max",
+            "Min/Max",
+            "Mean ± 3SD",
+            "IQR (Q1, Q3)",
+            f"{tol_cov}%/{tol_conf}% Lower TI",
+            f"{mean_ci_conf}% Lower CI for Mean",
+        ]
 
     if sr is not None:
         ax.axvspan(sr[0], sr[1], color=cfg["band_color"], alpha=0.18)
         ax.axvline(sr[0], color=cfg["secondary_color"], ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
         ax.axvline(sr[1], color=cfg["secondary_color"], ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
         if shaded_label:
-            ax.text(
-                float(np.mean(sr)),
-                density_label_y + density_height * 0.90,
-                shaded_label,
-                color=cfg["secondary_color"],
-                ha="center",
-                va="bottom",
-                fontsize=9,
-                bbox=dict(facecolor="white", alpha=0.85, edgecolor="none", pad=2),
-            )
+            ax.text(float(np.mean(sr)), density_label_y + density_height * 0.90, shaded_label, color=cfg["secondary_color"], ha="center", va="bottom", fontsize=9, bbox=dict(facecolor="white", alpha=0.85, edgecolor="none", pad=2))
 
     xgrid = np.linspace(x_lo, x_hi, 600)
     for i, s in enumerate(stats_list):
@@ -336,10 +366,20 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
                 ax.hlines(yy, s["q1"], s["q3"], color=col, lw=cfg["line_width"] + 0.2, ls=cfg["line_style"])
                 ax.plot(s["median"], yy, "o", color=col, ms=ms)
             elif ridx == 4:
-                ax.hlines(yy, s["tol_lower"], s["tol_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
+                if interval_side == "two-sided" and pd.notna(s["tol_lower"]) and pd.notna(s["tol_upper"]):
+                    ax.hlines(yy, s["tol_lower"], s["tol_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
+                elif interval_side == "upper" and pd.notna(s["tol_upper"]):
+                    ax.hlines(yy, s["mean"], s["tol_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
+                elif interval_side == "lower" and pd.notna(s["tol_lower"]):
+                    ax.hlines(yy, s["tol_lower"], s["mean"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
                 ax.plot(s["mean"], yy, "o", color=col, ms=max(4.5, cfg["marker_size"] / 10))
             else:
-                ax.hlines(yy, s["ci_lower"], s["ci_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
+                if interval_side == "two-sided" and pd.notna(s["ci_lower"]) and pd.notna(s["ci_upper"]):
+                    ax.hlines(yy, s["ci_lower"], s["ci_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
+                elif interval_side == "upper" and pd.notna(s["ci_upper"]):
+                    ax.hlines(yy, s["mean"], s["ci_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
+                elif interval_side == "lower" and pd.notna(s["ci_lower"]):
+                    ax.hlines(yy, s["ci_lower"], s["mean"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
                 ax.plot(s["mean"], yy, "o", color=col, ms=max(4.5, cfg["marker_size"] / 10))
 
     ax.set_xlim(x_lo, x_hi)
@@ -349,10 +389,7 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
     apply_ax_style(ax, title, "", "", legend=False, plot_key="Descriptive summary")
     ax.grid(axis="x", alpha=cfg["grid_alpha"])
     if cfg["show_legend"] and len(labels) > 1:
-        handles = [
-            plt.Line2D([0], [0], color=colors[i], marker="o", lw=cfg["line_width"], ls=cfg["line_style"], label=labels[i])
-            for i in range(len(labels))
-        ]
+        handles = [plt.Line2D([0], [0], color=colors[i], marker="o", lw=cfg["line_width"], ls=cfg["line_style"], label=labels[i]) for i in range(len(labels))]
         ax.legend(handles=handles, frameon=False, loc=cfg["legend_loc"])
 
     axr.axis("off")
@@ -387,11 +424,25 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
         ("Median", [f"{s['median']:.3f}" for s in stats_list], True),
         ("3rd Quartile", [f"{s['q3']:.3f}" for s in stats_list], True),
         ("Maximum", [f"{s['max']:.3f}" for s in stats_list], True),
-        (f"{tol_cov}%/{tol_conf}% LTI", [f"{s['tol_lower']:.3f}" if pd.notna(s['tol_lower']) else "-" for s in stats_list], True),
-        (f"{tol_cov}%/{tol_conf}% UTI", [f"{s['tol_upper']:.3f}" if pd.notna(s['tol_upper']) else "-" for s in stats_list], True),
-        (f"{mean_ci_conf}% LCI for Mean", [f"{s['ci_lower']:.3f}" if pd.notna(s['ci_lower']) else "-" for s in stats_list], True),
-        (f"{mean_ci_conf}% UCI for Mean", [f"{s['ci_upper']:.3f}" if pd.notna(s['ci_upper']) else "-" for s in stats_list], True),
     ]
+    if interval_side == "two-sided":
+        rows.extend([
+            (f"{tol_cov}%/{tol_conf}% LTI", [f"{s['tol_lower']:.3f}" if pd.notna(s['tol_lower']) else "-" for s in stats_list], True),
+            (f"{tol_cov}%/{tol_conf}% UTI", [f"{s['tol_upper']:.3f}" if pd.notna(s['tol_upper']) else "-" for s in stats_list], True),
+            (f"{mean_ci_conf}% LCI for Mean", [f"{s['ci_lower']:.3f}" if pd.notna(s['ci_lower']) else "-" for s in stats_list], True),
+            (f"{mean_ci_conf}% UCI for Mean", [f"{s['ci_upper']:.3f}" if pd.notna(s['ci_upper']) else "-" for s in stats_list], True),
+        ])
+    elif interval_side == "upper":
+        rows.extend([
+            (f"{tol_cov}%/{tol_conf}% UTI", [f"{s['tol_upper']:.3f}" if pd.notna(s['tol_upper']) else "-" for s in stats_list], True),
+            (f"{mean_ci_conf}% UCI for Mean", [f"{s['ci_upper']:.3f}" if pd.notna(s['ci_upper']) else "-" for s in stats_list], True),
+        ])
+    else:
+        rows.extend([
+            (f"{tol_cov}%/{tol_conf}% LTI", [f"{s['tol_lower']:.3f}" if pd.notna(s['tol_lower']) else "-" for s in stats_list], True),
+            (f"{mean_ci_conf}% LCI for Mean", [f"{s['ci_lower']:.3f}" if pd.notna(s['ci_lower']) else "-" for s in stats_list], True),
+        ])
+
     for label, vals, bold in rows:
         axr.text(label_x, y, label, ha="left", va="center", fontsize=body_fs, weight=("bold" if bold else "normal"))
         if vals is not None:
@@ -400,8 +451,6 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
         y -= row_step
     fig.tight_layout(rect=[0, 0, 1, 0.985])
     return fig
-
-
 
 
 def _anova_multi_groups(sample_arrays):
@@ -484,7 +533,7 @@ def _tukey_pairwise_figure(sample_arrays, alpha=0.05):
     ax.grid(axis="x", alpha=cfg["grid_alpha"])
     return fig
 
-def _welch_mean_diff_ci(ref, test, conf=0.95):
+def _welch_mean_diff_ci(ref, test, conf=0.95, interval_side="two-sided"):
     ref = np.asarray(ref, dtype=float)
     test = np.asarray(test, dtype=float)
     nx, ny = len(ref), len(test)
@@ -497,8 +546,16 @@ def _welch_mean_diff_ci(ref, test, conf=0.95):
     dfw_num = (vx / nx + vy / ny) ** 2
     dfw_den = (((vx / nx) ** 2) / (nx - 1)) + (((vy / ny) ** 2) / (ny - 1))
     dfw = dfw_num / dfw_den if dfw_den > 0 else np.nan
-    tcrit = t.ppf(1 - (1 - conf) / 2, dfw) if pd.notna(dfw) else np.nan
-    return diff, diff - tcrit * se if pd.notna(tcrit) else np.nan, diff + tcrit * se if pd.notna(tcrit) else np.nan
+    if not pd.notna(dfw):
+        return diff, np.nan, np.nan
+    if interval_side == "two-sided":
+        tcrit = t.ppf(1 - (1 - conf) / 2, dfw)
+        return diff, diff - tcrit * se, diff + tcrit * se
+    if interval_side == "upper":
+        tcrit = t.ppf(conf, dfw)
+        return diff, np.nan, diff + tcrit * se
+    tcrit = t.ppf(conf, dfw)
+    return diff, diff - tcrit * se, np.nan
 
 
 def _reference_comparison_table(ref_label, ref, sample_arrays, alpha=0.05, conf=0.95):
@@ -526,7 +583,7 @@ def _reference_comparison_table(ref_label, ref, sample_arrays, alpha=0.05, conf=
             p_mw = float(mw.pvalue)
         except Exception:
             p_mw = np.nan
-        diff, ci_lower, ci_upper = _welch_mean_diff_ci(ref, arr, conf=conf)
+        diff, ci_lower, ci_upper = _welch_mean_diff_ci(ref, arr, conf=conf, interval_side=interval_side)
         comment = "Difference vs reference" if pd.notna(p_welch) and p_welch < alpha else "No clear difference vs reference"
         rows.append({
             "Reference": ref_label,
@@ -550,7 +607,7 @@ def _paired_series(ref_series, sample_series):
     return pair_df.dropna()
 
 
-def _pairwise_assessment_tables(ref_label, numeric_series, selected_cols, alpha=0.05, conf=0.95, include_paired=False):
+def _pairwise_assessment_tables(ref_label, numeric_series, selected_cols, alpha=0.05, conf=0.95, include_paired=False, interval_side="two-sided"):
     variance_rows = []
     test_rows = []
     paired_normality_rows = []
@@ -559,8 +616,8 @@ def _pairwise_assessment_tables(ref_label, numeric_series, selected_cols, alpha=
     include_wilcoxon_any = False
     ref_series = to_numeric(numeric_series[ref_label])
     ref = ref_series.dropna().to_numpy(dtype=float)
-    ci_label_lo = f"{int(round(conf * 100))}% CI Lower"
-    ci_label_hi = f"{int(round(conf * 100))}% CI Upper"
+    ci_label_lo = f"{int(round(conf * 100))}% CI Lower" if interval_side == "two-sided" else (f"{int(round(conf * 100))}% Lower CI" if interval_side == "lower" else None)
+    ci_label_hi = f"{int(round(conf * 100))}% CI Upper" if interval_side == "two-sided" else (f"{int(round(conf * 100))}% Upper CI" if interval_side == "upper" else None)
     for label in selected_cols[1:]:
         sample_series = to_numeric(numeric_series[label])
         arr = sample_series.dropna().to_numpy(dtype=float)
@@ -602,7 +659,7 @@ def _pairwise_assessment_tables(ref_label, numeric_series, selected_cols, alpha=
         samp_ad_p = normal_ad(arr)[1] if len(arr) >= 3 else np.nan
         samp_sh_p = stats.shapiro(arr).pvalue if 3 <= len(arr) <= 5000 else np.nan
         normality_concern = _strong_normality_concern(ref_ad_p, ref_sh_p, alpha) or _strong_normality_concern(samp_ad_p, samp_sh_p, alpha)
-        diff, ci_lower, ci_upper = _welch_mean_diff_ci(ref, arr, conf=conf)
+        diff, ci_lower, ci_upper = _welch_mean_diff_ci(ref, arr, conf=conf, interval_side=interval_side)
         row = {
             "Reference": ref_label,
             "Comparison": label,
@@ -612,8 +669,10 @@ def _pairwise_assessment_tables(ref_label, numeric_series, selected_cols, alpha=
         }
         if include_paired:
             row["Mean Difference (Ref - Sample)"] = diff
-            row[ci_label_lo] = ci_lower
-            row[ci_label_hi] = ci_upper
+            if ci_label_lo is not None:
+                row[ci_label_lo] = ci_lower
+            if ci_label_hi is not None:
+                row[ci_label_hi] = ci_upper
         if unequal_var_concern:
             row["Welch t-test P-Value"] = p_welch
             include_welch_any = True
@@ -761,15 +820,22 @@ def render():
                             "Range": s["max"] - s["min"],
                         } for s in stats_objs])
 
-                        ci_title = f"{mean_ci_conf}% CI" if interval_side == "two-sided" else f"{mean_ci_conf}% {interval_side.title()} CI"
-                        ti_title = f"{tol_cov}%/{tol_conf}% TI" if interval_side == "two-sided" else f"{tol_cov}%/{tol_conf}% {interval_side.title()} TI"
-                        interval_tbl = pd.DataFrame([{
-                            "Sample": s["label"],
-                            f"{ci_title} Lower": s["ci_lower"],
-                            f"{ci_title} Upper": s["ci_upper"],
-                            f"{ti_title} Lower": s["tol_lower"],
-                            f"{ti_title} Upper": s["tol_upper"],
-                        } for s in stats_objs])
+                        interval_rows = []
+                        for s in stats_objs:
+                            row = {"Sample": s["label"]}
+                            if interval_side == "two-sided":
+                                row[f"{mean_ci_conf}% LCI for Mean"] = s["ci_lower"]
+                                row[f"{mean_ci_conf}% UCI for Mean"] = s["ci_upper"]
+                                row[f"{tol_cov}%/{tol_conf}% LTI"] = s["tol_lower"]
+                                row[f"{tol_cov}%/{tol_conf}% UTI"] = s["tol_upper"]
+                            elif interval_side == "upper":
+                                row[f"{mean_ci_conf}% UCI for Mean"] = s["ci_upper"]
+                                row[f"{tol_cov}%/{tol_conf}% UTI"] = s["tol_upper"]
+                            else:
+                                row[f"{mean_ci_conf}% LCI for Mean"] = s["ci_lower"]
+                                row[f"{tol_cov}%/{tol_conf}% LTI"] = s["tol_lower"]
+                            interval_rows.append(row)
+                        interval_tbl = pd.DataFrame(interval_rows)
 
                         normality_tbl = pd.DataFrame([{
                             "Sample": s["label"],
@@ -795,6 +861,7 @@ def render():
                                 alpha=alpha,
                                 conf=conf,
                                 include_paired=paired_compare,
+                                interval_side=interval_side,
                             )
                             if paired_compare and not paired_norm_tbl.empty:
                                 normality_tbl = pd.concat([normality_tbl, paired_norm_tbl], ignore_index=True)
@@ -814,7 +881,7 @@ def render():
 
                         figure_map = {}
                         info_box("This graphical summary combines distribution shape, spread, quartiles, tolerance interval, and confidence interval for the selected sample set in one comparison view.")
-                        fig_summary = _graphical_summary_figure(stats_objs, "Graphical Summary", tol_cov, tol_conf, mean_ci_conf)
+                        fig_summary = _graphical_summary_figure(stats_objs, "Graphical Summary", tol_cov, tol_conf, mean_ci_conf, interval_side=interval_side)
                         show_figure(fig_summary, "Graphical summary")
                         figure_map["Graphical Summary"] = fig_to_png_bytes(fig_summary)
                         plt.close(fig_summary)
@@ -843,8 +910,21 @@ def render():
                         fig_interval, ax = plt.subplots(figsize=(FIG_W, FIG_H))
                         for i, s in enumerate(stats_objs, start=1):
                             col = colors[(i - 1) % len(colors)]
-                            ax.plot([s["tol_lower"], s["tol_upper"]], [i, i], color=col, alpha=0.25, lw=8, solid_capstyle="round")
-                            ax.plot([s["ci_lower"], s["ci_upper"]], [i, i], color=col, lw=4, solid_capstyle="round")
+                            if interval_side == "two-sided":
+                                if pd.notna(s["tol_lower"]) and pd.notna(s["tol_upper"]):
+                                    ax.plot([s["tol_lower"], s["tol_upper"]], [i, i], color=col, alpha=0.25, lw=8, solid_capstyle="round")
+                                if pd.notna(s["ci_lower"]) and pd.notna(s["ci_upper"]):
+                                    ax.plot([s["ci_lower"], s["ci_upper"]], [i, i], color=col, lw=4, solid_capstyle="round")
+                            elif interval_side == "upper":
+                                if pd.notna(s["tol_upper"]):
+                                    ax.plot([s["mean"], s["tol_upper"]], [i, i], color=col, alpha=0.25, lw=8, solid_capstyle="round")
+                                if pd.notna(s["ci_upper"]):
+                                    ax.plot([s["mean"], s["ci_upper"]], [i, i], color=col, lw=4, solid_capstyle="round")
+                            else:
+                                if pd.notna(s["tol_lower"]):
+                                    ax.plot([s["tol_lower"], s["mean"]], [i, i], color=col, alpha=0.25, lw=8, solid_capstyle="round")
+                                if pd.notna(s["ci_lower"]):
+                                    ax.plot([s["ci_lower"], s["mean"]], [i, i], color=col, lw=4, solid_capstyle="round")
                             ax.scatter([s["mean"]], [i], color=col, s=80, zorder=3)
                         ax.set_yticks(range(1, len(stats_objs) + 1))
                         ax.set_yticklabels(labels)
