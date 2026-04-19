@@ -468,8 +468,8 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
         header_y = top_y - 0.010
         row_start_y = top_y - 0.075
 
-        col_left = 0.60 if block_len >= 5 else 0.56
-        col_positions = np.linspace(col_left, 0.97, block_len) if block_len > 1 else np.array([0.79])
+        col_left = 0.50 if block_len >= 5 else 0.46
+        col_positions = np.linspace(col_left, 0.97, block_len) if block_len > 1 else np.array([0.72])
 
         header_fs = 8.6 if block_len >= 5 else 9.3
         body_fs = 8.0 if block_len >= 5 else 8.8
