@@ -358,7 +358,7 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
 
     separators = [6.15, 5.25, 4.35, 3.45, 2.55, 1.65, 0.75]
     for y_sep in separators:
-        ax.hlines(y_sep, x_lo, x_hi, color="#d1d5db", lw=0.8)
+        ax.hlines(y_sep, x_lo*0.95, x_hi*1.05, color="#d1d5db", lw=0.8)
 
     offsets = np.linspace(0.2, -0.2, len(stats_list)) if len(stats_list) > 1 else np.array([0.0])
     for ridx, yc in enumerate(row_centers):
