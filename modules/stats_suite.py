@@ -293,8 +293,8 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
         gridspec_kw={"width_ratios": [1.12, 1.05]},
     )
 
-    density_label_y = 7.00
-    density_base_y = 6.50
+    density_label_y = 6.5
+    density_base_y = 6.00
     density_height = 0.52
     row_centers = [5.70, 4.80, 3.90, 3.00, 2.10, 1.20]
     if interval_side == "two-sided":
