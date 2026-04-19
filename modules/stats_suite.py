@@ -1,5 +1,6 @@
 import modules.common as common
 from modules.common import *
+from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
 st = common.st
 pd = common.pd
@@ -232,67 +233,123 @@ def _acceptance_band(ref, test, alpha_level=0.05):
 
 def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf, shaded_range=None, shaded_label=None):
     cfg = common.safe_get_plot_cfg("Descriptive summary")
-    colors = [cfg["primary_color"], cfg["secondary_color"], cfg["tertiary_color"]]
+    base_colors = [cfg["primary_color"], cfg["secondary_color"], cfg["tertiary_color"], "#9467bd", "#8c564b", "#e377c2", "#17becf", "#bcbd22"]
+    colors = [base_colors[i % len(base_colors)] for i in range(len(stats_list))]
     labels = [s["label"] for s in stats_list]
     mins, maxs = [], []
     for s in stats_list:
         for key in ["min", "whisker_lower", "q1", "mean", "tol_lower", "ci_lower"]:
-            if pd.notna(s.get(key, np.nan)): mins.append(s[key])
+            if pd.notna(s.get(key, np.nan)):
+                mins.append(s[key])
         for key in ["max", "whisker_upper", "q3", "mean", "tol_upper", "ci_upper"]:
-            if pd.notna(s.get(key, np.nan)): maxs.append(s[key])
+            if pd.notna(s.get(key, np.nan)):
+                maxs.append(s[key])
     sr = None
     if shaded_range is not None:
         sr = np.asarray(shaded_range, dtype=float).ravel()
         if sr.size == 2 and np.all(np.isfinite(sr)):
-            mins += [float(np.min(sr))]; maxs += [float(np.max(sr))]
+            mins += [float(np.min(sr))]
+            maxs += [float(np.max(sr))]
         else:
             sr = None
-    x_min = min(mins) if mins else 0.0; x_max = max(maxs) if maxs else 1.0; pad = 0.08 * (x_max - x_min if x_max > x_min else 1); x_lo, x_hi = x_min - pad, x_max + pad
-    fig, (ax, axr) = plt.subplots(1, 2, figsize=(max(cfg["fig_w"] * 1.95, 13), max(cfg["fig_h"] * 1.55, 7.2)), gridspec_kw={"width_ratios": [1.6, 1]})
-    density_y0 = 6.35; row_centers = [5.25, 4.35, 3.45, 2.55, 1.65, 0.75]
-    row_names = ["Whisker Min/Max", "Min/Max", "Mean ± 3SD", "IQR (Q1, Q3)", f"{tol_cov}%/{tol_conf}% Tol. Interval", f"{mean_ci_conf}% CI for Mean"]
+    x_min = min(mins) if mins else 0.0
+    x_max = max(maxs) if maxs else 1.0
+    pad = 0.08 * (x_max - x_min if x_max > x_min else 1.0)
+    x_lo, x_hi = x_min - pad, x_max + pad
+    fig, (ax, axr) = plt.subplots(
+        1,
+        2,
+        figsize=(max(cfg["fig_w"] * 2.00, 13.6), max(cfg["fig_h"] * 1.70, 7.8)),
+        gridspec_kw={"width_ratios": [1.65, 1]},
+    )
+
+    row_names = [
+        "Whisker Min/Max",
+        "Min/Max",
+        "Mean ± 3SD",
+        "IQR (Q1, Q3)",
+        f"{tol_cov}%/{tol_conf}% Tol. Interval",
+        f"{mean_ci_conf}% CI for Mean",
+    ]
+    density_y0 = 7.0
+    row_gap = 1.0
+    row_centers = [6.0, 5.0, 4.0, 3.0, 2.0, 1.0]
+    density_height = 0.62
+
     if sr is not None:
         ax.axvspan(sr[0], sr[1], color=cfg["band_color"], alpha=0.18)
         ax.axvline(sr[0], color=cfg["secondary_color"], ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
         ax.axvline(sr[1], color=cfg["secondary_color"], ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
         if shaded_label:
-            ax.text(float(np.mean(sr)), 6.55, shaded_label, color=cfg["secondary_color"], ha="center", va="bottom", fontsize=9, bbox=dict(facecolor="white", alpha=0.85, edgecolor="none", pad=2))
+            ax.text(
+                float(np.mean(sr)),
+                density_y0 + density_height + 0.08,
+                shaded_label,
+                color=cfg["secondary_color"],
+                ha="center",
+                va="bottom",
+                fontsize=9,
+                bbox=dict(facecolor="white", alpha=0.85, edgecolor="none", pad=2),
+            )
+
     xgrid = np.linspace(x_lo, x_hi, 600)
     for i, s in enumerate(stats_list):
-        arr = s["raw"]; col = colors[i]
+        arr = s["raw"]
+        col = colors[i]
         if len(np.unique(arr)) > 1 and len(arr) >= 3:
             try:
-                dens = gaussian_kde(arr)(xgrid); dens = dens / dens.max() * 0.85
+                dens = gaussian_kde(arr)(xgrid)
+                dens = dens / dens.max() * density_height if np.max(dens) > 0 else np.zeros_like(xgrid)
             except Exception:
                 dens = np.zeros_like(xgrid)
         else:
             dens = np.zeros_like(xgrid)
         ax.plot(xgrid, density_y0 + dens, color=col, lw=cfg["line_width"], ls=cfg["line_style"])
-        ax.hlines(density_y0, x_lo, x_hi, color="#111827", lw=0.8)
+    ax.hlines(density_y0, x_lo, x_hi, color="#111827", lw=0.8)
+
+    separators = [6.5, 5.5, 4.5, 3.5, 2.5, 1.5, 0.5]
+    for y_sep in separators:
+        ax.hlines(y_sep, x_lo, x_hi, color="#d1d5db", lw=0.8)
+
     offsets = np.linspace(0.18, -0.18, len(stats_list)) if len(stats_list) > 1 else np.array([0.0])
     for ridx, yc in enumerate(row_centers):
-        ax.hlines(yc - 0.37, x_lo, x_hi, color="#d1d5db", lw=0.8)
         for i, s in enumerate(stats_list):
-            yy = yc + offsets[i]; col = colors[i]; ms = max(4, cfg["marker_size"] / 12)
+            yy = yc + offsets[i]
+            col = colors[i]
+            ms = max(4, cfg["marker_size"] / 12)
             if ridx == 0:
-                ax.hlines(yy, s["whisker_lower"], s["whisker_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"]); ax.plot(s["median"], yy, 'o', color=col, ms=ms)
+                ax.hlines(yy, s["whisker_lower"], s["whisker_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
+                ax.plot(s["median"], yy, "o", color=col, ms=ms)
             elif ridx == 1:
-                ax.hlines(yy, s["min"], s["max"], color=col, lw=cfg["line_width"], ls=cfg["line_style"]); ax.plot(s["median"], yy, 'o', color=col, ms=ms)
+                ax.hlines(yy, s["min"], s["max"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
+                ax.plot(s["median"], yy, "o", color=col, ms=ms)
             elif ridx == 2:
-                lo = s["mean"] - 3 * s["sd"] if pd.notna(s["sd"]) else np.nan; hi = s["mean"] + 3 * s["sd"] if pd.notna(s["sd"]) else np.nan
-                if pd.notna(lo) and pd.notna(hi): ax.hlines(yy, lo, hi, color=col, lw=cfg["line_width"], ls=cfg["line_style"])
-                ax.plot(s["mean"], yy, 'o', color=col, ms=max(4.5, cfg["marker_size"] / 10))
+                lo = s["mean"] - 3 * s["sd"] if pd.notna(s["sd"]) else np.nan
+                hi = s["mean"] + 3 * s["sd"] if pd.notna(s["sd"]) else np.nan
+                if pd.notna(lo) and pd.notna(hi):
+                    ax.hlines(yy, lo, hi, color=col, lw=cfg["line_width"], ls=cfg["line_style"])
+                ax.plot(s["mean"], yy, "o", color=col, ms=max(4.5, cfg["marker_size"] / 10))
             elif ridx == 3:
-                ax.hlines(yy, s["q1"], s["q3"], color=col, lw=cfg["line_width"] + 0.2, ls=cfg["line_style"]); ax.plot(s["median"], yy, 'o', color=col, ms=ms)
+                ax.hlines(yy, s["q1"], s["q3"], color=col, lw=cfg["line_width"] + 0.2, ls=cfg["line_style"])
+                ax.plot(s["median"], yy, "o", color=col, ms=ms)
             elif ridx == 4:
-                ax.hlines(yy, s["tol_lower"], s["tol_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"]); ax.plot(s["mean"], yy, 'o', color=col, ms=max(4.5, cfg["marker_size"] / 10))
+                ax.hlines(yy, s["tol_lower"], s["tol_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
+                ax.plot(s["mean"], yy, "o", color=col, ms=max(4.5, cfg["marker_size"] / 10))
             else:
-                ax.hlines(yy, s["ci_lower"], s["ci_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"]); ax.plot(s["mean"], yy, 'o', color=col, ms=max(4.5, cfg["marker_size"] / 10))
-    ax.set_xlim(x_lo, x_hi); ax.set_ylim(0.35, 6.95); ax.set_yticks([density_y0] + row_centers); ax.set_yticklabels(["Normal distribution"] + row_names)
+                ax.hlines(yy, s["ci_lower"], s["ci_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
+                ax.plot(s["mean"], yy, "o", color=col, ms=max(4.5, cfg["marker_size"] / 10))
+
+    ax.set_xlim(x_lo, x_hi)
+    ax.set_ylim(0.45, 7.85)
+    ax.set_yticks([density_y0] + row_centers)
+    ax.set_yticklabels(["Normal distribution"] + row_names)
     apply_ax_style(ax, title, "", "", legend=False, plot_key="Descriptive summary")
     ax.grid(axis="x", alpha=cfg["grid_alpha"])
     if cfg["show_legend"] and len(labels) > 1:
-        handles = [plt.Line2D([0], [0], color=colors[i], marker='o', lw=cfg["line_width"], ls=cfg["line_style"], label=labels[i]) for i in range(len(labels))]
+        handles = [
+            plt.Line2D([0], [0], color=colors[i], marker="o", lw=cfg["line_width"], ls=cfg["line_style"], label=labels[i])
+            for i in range(len(labels))
+        ]
         ax.legend(handles=handles, frameon=False, loc=cfg["legend_loc"])
 
     axr.axis("off")
@@ -329,7 +386,7 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
         for xpos, val in zip(col_positions, vals):
             axr.text(xpos, y, val, ha="center", va="center", fontsize=body_fs)
         y -= row_step
-    fig.tight_layout()
+    fig.tight_layout(rect=[0, 0, 1, 0.985])
     return fig
 
 
@@ -370,6 +427,49 @@ def _anova_multi_groups(sample_arrays):
         "Adjusted R²": [rsq_adj],
     })
     return anova_tbl, model_tbl
+
+
+def _tukey_pairwise_figure(sample_arrays, alpha=0.05):
+    if len(sample_arrays) < 3:
+        return None
+    groups = []
+    values = []
+    for label, arr in sample_arrays:
+        arr = np.asarray(arr, dtype=float)
+        arr = arr[np.isfinite(arr)]
+        if arr.size == 0:
+            continue
+        groups.extend([label] * arr.size)
+        values.extend(arr.tolist())
+    if len(set(groups)) < 3:
+        return None
+    try:
+        tukey = pairwise_tukeyhsd(endog=np.asarray(values, dtype=float), groups=np.asarray(groups, dtype=object), alpha=alpha)
+        summary = pd.DataFrame(tukey.summary().data[1:], columns=tukey.summary().data[0])
+    except Exception:
+        return None
+    for col in ["meandiff", "p-adj", "lower", "upper"]:
+        if col in summary.columns:
+            summary[col] = pd.to_numeric(summary[col], errors="coerce")
+    if "reject" in summary.columns:
+        reject = summary["reject"].astype(str).str.lower().isin(["true", "1", "yes"])
+    else:
+        reject = pd.Series(False, index=summary.index)
+    y = np.arange(len(summary), 0, -1, dtype=float)
+    fig_h = max(FIG_H, 0.50 * len(summary) + 1.8)
+    fig, ax = plt.subplots(figsize=(FIG_W * 1.18, fig_h))
+    ax.axvline(0, color="#64748b", lw=1.0, ls="--")
+    colors = np.where(reject.to_numpy(), common.safe_get_plot_cfg("Descriptive summary")["secondary_color"], common.safe_get_plot_cfg("Descriptive summary")["primary_color"])
+    for i, (_, row) in enumerate(summary.iterrows()):
+        ax.hlines(y[i], row["lower"], row["upper"], color=colors[i], lw=2.2)
+        ax.scatter(row["meandiff"], y[i], color=colors[i], s=46, zorder=3)
+    labels = [f"{g1} - {g2}" for g1, g2 in zip(summary["group1"], summary["group2"])]
+    ax.set_yticks(y)
+    ax.set_yticklabels(labels)
+    ax.set_ylim(0.4, len(summary) + 0.6)
+    apply_ax_style(ax, "Tukey HSD simultaneous confidence intervals", "Mean difference", "Comparison", legend=False, plot_key="Tolerance/CI box plot")
+    ax.grid(axis="x", alpha=common.safe_get_plot_cfg("Descriptive summary")["grid_alpha"])
+    return fig
 
 
 def _welch_mean_diff_ci(ref, test, conf=0.95):
@@ -671,6 +771,7 @@ def render():
                         info_box("These intervals show the uncertainty around each sample mean and the expected range covering the chosen proportion of the population.")
                         report_table(interval_tbl, "Confidence and tolerance intervals", decimals)
 
+                        tukey_fig = None
                         if not is_single:
                             anova_tbl, model_tbl = _anova_multi_groups(sample_arrays)
                             variance_tbl, tests_tbl, paired_norm_tbl = _pairwise_assessment_tables(
@@ -683,12 +784,20 @@ def render():
                             )
                             if paired_compare and not paired_norm_tbl.empty:
                                 normality_tbl = pd.concat([normality_tbl, paired_norm_tbl], ignore_index=True)
+                            if len(sample_arrays) >= 3:
+                                tukey_fig = _tukey_pairwise_figure(sample_arrays, alpha=alpha)
                             if not variance_tbl.empty:
                                 table_map["Equal Variance Checks"] = variance_tbl
                             table_map["ANOVA"] = anova_tbl
                             table_map["ANOVA Model Summary"] = model_tbl
                             if not tests_tbl.empty:
                                 table_map["Reference Comparison Tests"] = tests_tbl
+
+                        table_map["Normality Review"] = normality_tbl
+                        info_box("These normality checks support the visual interpretation of the data distribution and help guide parametric test usage. When paired analysis is requested, the normality of paired differences is also included.")
+                        report_table(normality_tbl, "Normality review", decimals)
+
+                        if not is_single:
                             if not variance_tbl.empty:
                                 info_box("These equal-variance checks compare each selected sample against the reference using both the F test and Levene's test. They help you judge whether classical equal-variance methods are reasonable.")
                                 report_table(variance_tbl, "Equal variance checks", decimals)
@@ -700,10 +809,6 @@ def render():
                                 pair_msg = " Paired tests are also shown using complete row-wise pairs because paired analysis was requested." if paired_compare else ""
                                 info_box("These reference-based hypothesis tests compare each selected sample against the reference using Student's t-test, and, only when justified by diagnostics, Welch's t-test, Mann-Whitney, or Wilcoxon signed-rank." + pair_msg)
                                 report_table(tests_tbl, "Reference comparison tests", decimals)
-
-                        table_map["Normality Review"] = normality_tbl
-                        info_box("These normality checks support the visual interpretation of the data distribution and help guide parametric test usage. When paired analysis is requested, the normality of paired differences is also included.")
-                        report_table(normality_tbl, "Normality review", decimals)
 
                         labels = [s["label"] for s in stats_objs]
                         data_list = [s["raw"] for s in stats_objs]
@@ -768,6 +873,12 @@ def render():
                         show_figure(fig_hist, "Histogram and density view")
                         figure_map["Histogram and density view"] = fig_to_png_bytes(fig_hist)
                         plt.close(fig_hist)
+
+                        if tukey_fig is not None:
+                            info_box("This Tukey HSD comparison plot shows the simultaneous confidence intervals for all pairwise mean differences when three or more samples are selected.")
+                            show_figure(tukey_fig, "Tukey HSD simultaneous confidence intervals")
+                            figure_map["Tukey HSD simultaneous confidence intervals"] = fig_to_png_bytes(tukey_fig)
+                            plt.close(tukey_fig)
 
                         if is_single:
                             info_box("This normal probability plot helps assess whether the sample follows an approximately normal distribution.")
