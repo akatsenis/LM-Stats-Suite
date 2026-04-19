@@ -266,6 +266,10 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
         for key in ["max", "whisker_upper", "q3", "mean", "tol_upper", "ci_upper"]:
             if pd.notna(s.get(key, np.nan)):
                 maxs.append(s[key])
+        # Fix: Ensure the plot accounts for the 3SD range so hlines don't clip!
+        if pd.notna(s.get("mean")) and pd.notna(s.get("sd")):
+            mins.append(s["mean"] - 3 * s["sd"])
+            maxs.append(s["mean"] + 3 * s["sd"])
 
     sr = None
     if shaded_range is not None:
@@ -353,41 +357,56 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
                 dens = np.zeros_like(xgrid)
         else:
             dens = np.zeros_like(xgrid)
+        
+        # Fancy enhancement: fill under the density curve
         ax.plot(xgrid, density_base_y + dens, color=col, lw=cfg["line_width"], ls=cfg["line_style"])
+        ax.fill_between(xgrid, density_base_y, density_base_y + dens, color=col, alpha=0.15)
+        
     ax.hlines(density_base_y, x_lo, x_hi, color="#111827", lw=0.8)
 
     separators = [6.15, 5.25, 4.35, 3.45, 2.55, 1.65, 0.75]
+    
+    # Fancy enhancement: Add subtle alternating row shading for readability
+    for i in range(len(separators)-1):
+        if i % 2 == 1:
+            ax.axhspan(separators[i+1], separators[i], color="#f9fafb", alpha=1.0, zorder=0)
+
+    # Note: now using x_lo and x_hi accurately spanning across the whole axis
     for y_sep in separators:
-        ax.hlines(y_sep, x_lo*0.97, x_hi*1.03, color="#d1d5db", lw=0.8)
+        ax.hlines(y_sep, x_lo, x_hi, color="#e5e7eb", lw=0.8, zorder=1)
 
     # Dynamically spread out markers based on sample count.
-    # Uses a wide gap (0.30) for few lots, capped at a maximum span of 0.75 
-    # so they automatically step closer together when there are many lots.
     if len(stats_list) > 1:
         total_span = min(0.75, 0.30 * (len(stats_list) - 1))
         offsets = np.linspace(total_span / 2, -total_span / 2, len(stats_list))
     else:
         offsets = np.array([0.0])
+        
     for ridx, yc in enumerate(row_centers):
         for i, s in enumerate(stats_list):
             yy = yc + offsets[i]
             col = colors[i]
             ms = max(4, cfg["marker_size"] / 12)
+            
+            # Fancy enhancement: Add a white stroke around markers so they pop when overlapping lines
+            marker_kwargs = {"color": col, "ms": ms, "markeredgecolor": "white", "markeredgewidth": 1.0, "zorder": 3}
+            large_marker_kwargs = {"color": col, "ms": max(4.5, cfg["marker_size"] / 10), "markeredgecolor": "white", "markeredgewidth": 1.0, "zorder": 3}
+
             if ridx == 0:
                 ax.hlines(yy, s["whisker_lower"], s["whisker_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
-                ax.plot(s["median"], yy, "o", color=col, ms=ms)
+                ax.plot(s["median"], yy, "o", **marker_kwargs)
             elif ridx == 1:
                 ax.hlines(yy, s["min"], s["max"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
-                ax.plot(s["median"], yy, "o", color=col, ms=ms)
+                ax.plot(s["median"], yy, "o", **marker_kwargs)
             elif ridx == 2:
                 lo = s["mean"] - 3 * s["sd"] if pd.notna(s["sd"]) else np.nan
                 hi = s["mean"] + 3 * s["sd"] if pd.notna(s["sd"]) else np.nan
                 if pd.notna(lo) and pd.notna(hi):
                     ax.hlines(yy, lo, hi, color=col, lw=cfg["line_width"], ls=cfg["line_style"])
-                ax.plot(s["mean"], yy, "o", color=col, ms=max(4.5, cfg["marker_size"] / 10))
+                ax.plot(s["mean"], yy, "o", **large_marker_kwargs)
             elif ridx == 3:
                 ax.hlines(yy, s["q1"], s["q3"], color=col, lw=cfg["line_width"] + 0.2, ls=cfg["line_style"])
-                ax.plot(s["median"], yy, "o", color=col, ms=ms)
+                ax.plot(s["median"], yy, "o", **marker_kwargs)
             elif ridx == 4:
                 if interval_side == "two-sided" and pd.notna(s["tol_lower"]) and pd.notna(s["tol_upper"]):
                     ax.hlines(yy, s["tol_lower"], s["tol_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
@@ -395,7 +414,7 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
                     ax.hlines(yy, s["mean"], s["tol_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
                 elif interval_side == "lower" and pd.notna(s["tol_lower"]):
                     ax.hlines(yy, s["tol_lower"], s["mean"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
-                ax.plot(s["mean"], yy, "o", color=col, ms=max(4.5, cfg["marker_size"] / 10))
+                ax.plot(s["mean"], yy, "o", **large_marker_kwargs)
             else:
                 if interval_side == "two-sided" and pd.notna(s["ci_lower"]) and pd.notna(s["ci_upper"]):
                     ax.hlines(yy, s["ci_lower"], s["ci_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
@@ -403,14 +422,18 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
                     ax.hlines(yy, s["mean"], s["ci_upper"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
                 elif interval_side == "lower" and pd.notna(s["ci_lower"]):
                     ax.hlines(yy, s["ci_lower"], s["mean"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
-                ax.plot(s["mean"], yy, "o", color=col, ms=max(4.5, cfg["marker_size"] / 10))
+                ax.plot(s["mean"], yy, "o", **large_marker_kwargs)
 
-    ax.set_xlim(x_lo*0.97, x_hi*1.03)
+    # Set xlim exactly to our computed boundaries so hlines hit the edges perfectly
+    ax.set_xlim(x_lo, x_hi)
     ax.set_ylim(0.70, 7.05)
     ax.set_yticks([density_label_y] + row_centers)
     ax.set_yticklabels(["Normal distribution"] + row_names)
     apply_ax_style(ax, title, "", "", legend=False, plot_key="Descriptive summary")
-    ax.grid(axis="x", alpha=cfg["grid_alpha"])
+    
+    # Ensure vertical grid lines sit behind shading and lines
+    ax.grid(axis="x", alpha=cfg["grid_alpha"], zorder=0)
+    
     if cfg["show_legend"] and len(labels) > 1:
         handles = [
             plt.Line2D([0], [0], color=colors[i], marker="o", lw=cfg["line_width"], ls=cfg["line_style"], label=labels[i])
@@ -475,7 +498,7 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
         header_y = top_y - 0.010
         row_start_y = top_y - 0.075
 
-        # Pull values closer to the headers (0.32) and stretch them across the empty space (0.98)
+        # Updated: pull values closer to the headers (0.32) and stretch them across the empty space (0.98)
         col_left = 0.32
         col_right = 0.98
         col_positions = np.linspace(col_left, col_right, block_len) if block_len > 1 else np.array([(col_left + col_right) / 2])
