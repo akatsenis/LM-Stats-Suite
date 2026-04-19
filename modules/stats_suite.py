@@ -360,7 +360,7 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
     for y_sep in separators:
         ax.hlines(y_sep, x_lo, x_hi, color="#d1d5db", lw=0.8)
 
-    offsets = np.linspace(0.66, -0.16, len(stats_list)) if len(stats_list) > 1 else np.array([0.0])
+    offsets = np.linspace(0.5, -0.5, len(stats_list)) if len(stats_list) > 1 else np.array([0.0])
     for ridx, yc in enumerate(row_centers):
         for i, s in enumerate(stats_list):
             yy = yc + offsets[i]
