@@ -21,7 +21,10 @@ TOOLS = [
     '📊 Descriptive Statistics & Intervals',
     '📈 Regression Analysis',
     '⏳ Shelf Life Estimator',
+    '💊 Dissolution Comparison (f2)',
+    '⚖️ Two-Sample Tests',
     '📐 Two-Way ANOVA / GLM',
+    '🎯 Tolerance & Confidence Intervals',
     '🌐 PCA Analysis',
 ]
 
@@ -36,6 +39,29 @@ SAMPLE_DATA = {
     "ti": "SampleA\tSampleB\n98.1\t97.4\n99.2\t98.0\n100.0\t98.8\n97.9\t97.1\n98.7\t97.9\n99.5\t98.4\n100.2\t99.0\n",
     "pca": "Batch\tSite\tAssay\tImpurity\tWater\tHardness\nB1\tNorth\t99.1\t0.12\t1.8\t7.2\nB2\tNorth\t98.7\t0.18\t2.0\t7.0\nB3\tSouth\t97.9\t0.31\t2.8\t6.1\nB4\tSouth\t98.2\t0.27\t2.5\t6.4\nB5\tEast\t99.4\t0.10\t1.7\t7.5\nB6\tEast\t99.0\t0.14\t1.9\t7.3\nB7\tWest\t97.6\t0.35\t3.0\t5.9\nB8\tWest\t97.8\t0.33\t2.9\t6.0\n",
 }
+
+# --- NEW HELPER: Word-Friendly HTML Table Exporter ---
+def render_word_friendly_tables(table_map, decimals):
+    """Renders DataFrames as inline HTML specifically formatted to paste perfectly into MS Word."""
+    st.markdown("---")
+    with st.expander("📄 Word-Friendly Tables (Copy & Paste to Word)"):
+        st.info("Highlight a table below, press **Ctrl+C** (or Cmd+C), and paste directly into Microsoft Word. Formatting will be preserved.")
+        for t_name, t_df in table_map.items():
+            st.markdown(f"<div style='margin-bottom: 5px; margin-top: 15px; font-weight: bold; font-size: 16px; color: #1f2937;'>{t_name}</div>", unsafe_allow_html=True)
+            
+            # Format numbers to the specified decimals before converting to HTML
+            fmt_df = t_df.copy()
+            for c in fmt_df.select_dtypes(include=[np.number]).columns:
+                fmt_df[c] = fmt_df[c].apply(lambda v: f"{v:.{decimals}f}" if pd.notna(v) else "-")
+            
+            # Generate pure HTML and inject Word-friendly CSS
+            html = fmt_df.to_html(index=False, escape=False)
+            html = html.replace('<table border="1" class="dataframe">', '<table style="border-collapse: collapse; width: 100%; font-family: Calibri, Arial, sans-serif; font-size: 11pt; border: 1px solid #d1d5db; color: #111827;">')
+            html = html.replace('<th>', '<th style="border: 1px solid #d1d5db; padding: 8px; text-align: left; background-color: #f3f4f6; font-weight: bold; border-bottom: 2px solid #9ca3af;">')
+            html = html.replace('<td>', '<td style="border: 1px solid #d1d5db; padding: 6px 8px;">')
+            
+            st.markdown(html, unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
 
 
 def load_sample_text(state_key, sample_key):
@@ -91,7 +117,7 @@ def _draw_closed_violin(ax, data_list, labels, colors, width=0.82):
         ax.plot(pos + half_width, grid, color=color, linewidth=1.1)
         mean_val = float(np.mean(arr))
         ax.plot([pos - width * 0.18, pos + width * 0.18], [mean_val, mean_val], color="#111827", linewidth=1.4, solid_capstyle="round")
-        ax.scatter([pos], [mean_val], color="#111827", s=20, zorder=3)
+        ax.scatter([pos], [mean_val], color="#111827", s=30, edgecolors="white", linewidth=1.0, zorder=3) # Fancy upgrade
         ax.plot([pos, pos], [float(np.min(arr)), float(np.max(arr))], color="#111827", linewidth=1.0, alpha=0.65)
     ax.set_xlim(0.4, len(data_list) + 0.6)
     ax.set_xticks(positions)
@@ -980,24 +1006,33 @@ def render():
 
                         info_box("This comparison plot shows the sample mean together with its confidence interval and tolerance interval for every selected sample.")
                         fig_interval, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+                        
+                        # FANCY UPGRADE: Alternating background row shading
+                        for i in range(1, len(stats_objs) + 1):
+                            if i % 2 == 0:
+                                ax.axhspan(i - 0.5, i + 0.5, color="#f9fafb", alpha=1.0, zorder=0)
+
                         for i, s in enumerate(stats_objs, start=1):
                             col = colors[(i - 1) % len(colors)]
                             if interval_side == "two-sided":
                                 if pd.notna(s["tol_lower"]) and pd.notna(s["tol_upper"]):
-                                    ax.plot([s["tol_lower"], s["tol_upper"]], [i, i], color=col, alpha=0.25, lw=8, solid_capstyle="round")
+                                    ax.plot([s["tol_lower"], s["tol_upper"]], [i, i], color=col, alpha=0.25, lw=8, solid_capstyle="round", zorder=2)
                                 if pd.notna(s["ci_lower"]) and pd.notna(s["ci_upper"]):
-                                    ax.plot([s["ci_lower"], s["ci_upper"]], [i, i], color=col, lw=4, solid_capstyle="round")
+                                    ax.plot([s["ci_lower"], s["ci_upper"]], [i, i], color=col, lw=4, solid_capstyle="round", zorder=2)
                             elif interval_side == "upper":
                                 if pd.notna(s["tol_upper"]):
-                                    ax.plot([s["mean"], s["tol_upper"]], [i, i], color=col, alpha=0.25, lw=8, solid_capstyle="round")
+                                    ax.plot([s["mean"], s["tol_upper"]], [i, i], color=col, alpha=0.25, lw=8, solid_capstyle="round", zorder=2)
                                 if pd.notna(s["ci_upper"]):
-                                    ax.plot([s["mean"], s["ci_upper"]], [i, i], color=col, lw=4, solid_capstyle="round")
+                                    ax.plot([s["mean"], s["ci_upper"]], [i, i], color=col, lw=4, solid_capstyle="round", zorder=2)
                             else:
                                 if pd.notna(s["tol_lower"]):
-                                    ax.plot([s["tol_lower"], s["mean"]], [i, i], color=col, alpha=0.25, lw=8, solid_capstyle="round")
+                                    ax.plot([s["tol_lower"], s["mean"]], [i, i], color=col, alpha=0.25, lw=8, solid_capstyle="round", zorder=2)
                                 if pd.notna(s["ci_lower"]):
-                                    ax.plot([s["ci_lower"], s["mean"]], [i, i], color=col, lw=4, solid_capstyle="round")
-                            ax.scatter([s["mean"]], [i], color=col, s=80, zorder=3)
+                                    ax.plot([s["ci_lower"], s["mean"]], [i, i], color=col, lw=4, solid_capstyle="round", zorder=2)
+                            
+                            # FANCY UPGRADE: White border on the marker so it pops off the line
+                            ax.scatter([s["mean"]], [i], color=col, s=80, edgecolors="white", linewidth=1.5, zorder=3)
+                            
                         ax.set_yticks(range(1, len(stats_objs) + 1))
                         ax.set_yticklabels(labels)
                         apply_ax_style(ax, "Mean with confidence and tolerance intervals", "Value", "Sample", plot_key="Tolerance/CI box plot")
@@ -1005,13 +1040,23 @@ def render():
                         figure_map["Mean with confidence and tolerance intervals"] = fig_to_png_bytes(fig_interval)
                         plt.close(fig_interval)
 
-                        info_box("This box plot compares the distribution, median, quartiles, and spread of all selected samples in one view.")
+                        info_box("This box plot compares the distribution, median, quartiles, and spread of all selected samples in one view. Actual data points are overlaid as a jitter plot.")
                         fig_box, ax = plt.subplots(figsize=(FIG_W, FIG_H))
-                        bp = ax.boxplot(data_list, tick_labels=labels, patch_artist=True)
+                        
+                        # FANCY UPGRADE: Jitter plot overlay and better boxplot aesthetics
+                        bp = ax.boxplot(data_list, tick_labels=labels, patch_artist=True, showfliers=False, medianprops=dict(color="#111827", linewidth=2.0))
                         for patch, col in zip(bp["boxes"], [colors[i % len(colors)] for i in range(len(data_list))]):
                             patch.set_facecolor(col)
-                            patch.set_alpha(0.22)
+                            patch.set_alpha(0.15)
                             patch.set_edgecolor(col)
+                            patch.set_linewidth(1.5)
+                        
+                        for i, arr in enumerate(data_list):
+                            y = arr
+                            # Add random horizontal jitter to the points for visibility
+                            x = np.random.normal(i + 1, 0.05, size=len(y))
+                            ax.plot(x, y, 'o', color=colors[i % len(colors)], alpha=0.65, markeredgecolor='white', markeredgewidth=0.8, zorder=3)
+                            
                         apply_ax_style(ax, "Sample distributions", "Sample", "Value", plot_key="Tolerance/CI box plot")
                         show_figure(fig_box, "Sample distributions")
                         figure_map["Box plot"] = fig_to_png_bytes(fig_box)
@@ -1032,12 +1077,25 @@ def render():
                         density_bounds = [_extended_density_grid(arr) for arr in data_list]
                         global_xmin = min(float(np.min(xs)) for xs, _ in density_bounds)
                         global_xmax = max(float(np.max(xs)) for xs, _ in density_bounds)
+                        
+                        # Find max density height to scale the rug plot below the x-axis
+                        global_ymax = max([np.max(ys) for xs, ys in density_bounds] + [0])
+                        
                         for i, arr in enumerate(data_list):
                             col = colors[i % len(colors)]
                             xs, ys = density_bounds[i]
-                            ax.hist(arr, bins=bins, range=(global_xmin, global_xmax), density=True, alpha=0.16, color=col, label=f"{labels[i]} histogram")
+                            
+                            # FANCY UPGRADE: Edge colors on histogram bars, fill under density, and a bottom Rug Plot
+                            ax.hist(arr, bins=bins, range=(global_xmin, global_xmax), density=True, alpha=0.25, color=col, edgecolor='white', linewidth=1.2, label=f"{labels[i]} histogram")
+                            
                             if len(np.unique(arr)) > 1:
-                                ax.plot(xs, ys, color=col, lw=2, label=f"{labels[i]} density")
+                                ax.plot(xs, ys, color=col, lw=2.5, label=f"{labels[i]} density")
+                                ax.fill_between(xs, 0, ys, color=col, alpha=0.10)
+                                
+                            # Rug Plot (Staggered if multiple samples)
+                            rug_y = -0.02 * global_ymax - (i * 0.015 * global_ymax) 
+                            ax.plot(arr, np.full_like(arr, rug_y), '|', color=col, markersize=8, markeredgewidth=1.5, alpha=0.7)
+                            
                         ax.set_xlim(global_xmin, global_xmax)
                         apply_ax_style(ax, "Histogram and density view", "Value", "Density", legend=True, plot_key="Tolerance/CI box plot")
                         show_figure(fig_hist, "Histogram and density view")
@@ -1047,11 +1105,24 @@ def render():
                         if is_single:
                             info_box("This normal probability plot helps assess whether the sample follows an approximately normal distribution.")
                             fig_qq, ax = plt.subplots(figsize=(FIG_W, FIG_H))
-                            stats.probplot(data_list[0], dist="norm", plot=ax)
+                            
+                            # FANCY UPGRADE: Custom styling for Q-Q points and lines instead of standard SciPy output
+                            res = stats.probplot(data_list[0], dist="norm", plot=None)
+                            x_th, y_data = res[0]
+                            slope, intercept, r = res[1]
+                            col = colors[0]
+                            
+                            ax.plot(x_th, y_data, 'o', color=col, ms=6, alpha=0.8, markeredgecolor='white', markeredgewidth=0.8)
+                            x_val = np.array([np.min(x_th), np.max(x_th)])
+                            y_val = slope * x_val + intercept
+                            ax.plot(x_val, y_val, color="#111827", ls='--', lw=1.5)
+                            
                             apply_ax_style(ax, f"Normal probability plot: {labels[0]}", "Theoretical quantiles", "Ordered values", plot_key="Q-Q plot")
                             show_figure(fig_qq, "Normal probability plot")
                             figure_map["Normal probability plot"] = fig_to_png_bytes(fig_qq)
                             plt.close(fig_qq)
+
+                        render_word_friendly_tables(table_map, decimals)
 
                         export_results(
                             prefix="descriptive_statistics_intervals",
@@ -1132,7 +1203,11 @@ def render():
                 show_figure(fig_res)
                 fig_qq = qq_plot(model["resid"], title="Normal probability plot of regression residuals")
                 show_figure(fig_qq)
-                export_results(prefix="regression_intervals_refined", report_title="Statistical Analysis Report", module_name="Regression Analysis", statistical_analysis="A simple linear regression model was fitted and confidence/prediction intervals were calculated. A slope significance test and crossing against a specification limit were also supported.", offer_text="This module evaluates linear trends, predictions, uncertainty bands, and optional spec-limit crossing.", python_tools="pandas, numpy, scipy.stats, matplotlib, openpyxl, reportlab", table_map={"Regression Model Summary": summary_tbl, "Regression Coefficients": reg_stats["coefficients"], "Regression ANOVA": reg_stats["anova"], "Parsed Input Data": data_df.rename(columns={"x": "X Value", "y": "Actual Y"}), "Fitted Values and Intervals": final_table_df}, figure_map={"Regression plot": fig_to_png_bytes(fig_main), "Residuals vs fitted": fig_to_png_bytes(fig_res), "Normal probability plot": fig_to_png_bytes(fig_qq)}, conclusion="Review the fitted line, interval bands, regression ANOVA, and residual diagnostics before interpreting the trend.", decimals=decimals)
+
+                table_map = {"Regression Model Summary": summary_tbl, "Regression Coefficients": reg_stats["coefficients"], "Regression ANOVA": reg_stats["anova"], "Parsed Input Data": data_df.rename(columns={"x": "X Value", "y": "Actual Y"}), "Fitted Values and Intervals": final_table_df}
+                render_word_friendly_tables(table_map, decimals)
+
+                export_results(prefix="regression_intervals_refined", report_title="Statistical Analysis Report", module_name="Regression Analysis", statistical_analysis="A simple linear regression model was fitted and confidence/prediction intervals were calculated. A slope significance test and crossing against a specification limit were also supported.", offer_text="This module evaluates linear trends, predictions, uncertainty bands, and optional spec-limit crossing.", python_tools="pandas, numpy, scipy.stats, matplotlib, openpyxl, reportlab", table_map=table_map, figure_map={"Regression plot": fig_to_png_bytes(fig_main), "Residuals vs fitted": fig_to_png_bytes(fig_res), "Normal probability plot": fig_to_png_bytes(fig_qq)}, conclusion="Review the fitted line, interval bands, regression ANOVA, and residual diagnostics before interpreting the trend.", decimals=decimals)
             except Exception as e:
                 st.error(str(e))
 
@@ -1222,7 +1297,11 @@ def render():
                 report_table(final_table_df, "Table 2: Fitted values and one-sided bounds", decimals)
                 fig_res = residual_plot(model["fitted"], model["resid"], xlabel="Fitted values", ylabel="Residuals", title="Residuals vs fitted")
                 show_figure(fig_res); fig_qq = qq_plot(model["resid"], title="Normal probability plot of stability residuals"); show_figure(fig_qq)
-                export_results(prefix="shelf_life_refined", report_title="Statistical Analysis Report", module_name="Shelf Life Estimator", statistical_analysis="A linear regression model was fitted to stability data and one-sided confidence/prediction bounds were used to estimate shelf life.", offer_text="This module projects future response and estimates a conservative shelf-life crossing against a selected limit.", python_tools="pandas, numpy, scipy.stats, matplotlib, openpyxl, reportlab", table_map={"Shelf-life Summary": summary_tbl, "Parsed Data": data_df.rename(columns={"x": x_label_from_header, "y": y_label_from_header}), "Fitted Values and One-Sided Bounds": final_table_df}, figure_map={"Shelf-life plot": fig_to_png_bytes(fig_main), "Residuals vs fitted": fig_to_png_bytes(fig_res), "Normal probability plot": fig_to_png_bytes(fig_qq)}, conclusion="Review the fit, one-sided bound selected, and residual diagnostics before finalizing shelf life.", decimals=decimals)
+                
+                table_map = {"Shelf-life Summary": summary_tbl, "Parsed Data": data_df.rename(columns={"x": x_label_from_header, "y": y_label_from_header}), "Fitted Values and One-Sided Bounds": final_table_df}
+                render_word_friendly_tables(table_map, decimals)
+
+                export_results(prefix="shelf_life_refined", report_title="Statistical Analysis Report", module_name="Shelf Life Estimator", statistical_analysis="A linear regression model was fitted to stability data and one-sided confidence/prediction bounds were used to estimate shelf life.", offer_text="This module projects future response and estimates a conservative shelf-life crossing against a selected limit.", python_tools="pandas, numpy, scipy.stats, matplotlib, openpyxl, reportlab", table_map=table_map, figure_map={"Shelf-life plot": fig_to_png_bytes(fig_main), "Residuals vs fitted": fig_to_png_bytes(fig_res), "Normal probability plot": fig_to_png_bytes(fig_qq)}, conclusion="Review the fit, one-sided bound selected, and residual diagnostics before finalizing shelf life.", decimals=decimals)
             except Exception as e:
                 st.error(str(e))
 
@@ -1287,8 +1366,11 @@ def render():
                         for _, fig in boot_figs.items(): show_figure(fig)
                     else:
                         st.info("Enable 'Bootstrap f2 CI' above to calculate percentile and/or BCa confidence intervals and show the extra bootstrap graph.")
+                
                 table_map = {"Profile Summary": merged, "f2 Assessment": assess_tbl, "FDA Criteria Check": fda_tbl, "FDA Criteria Details": fda_detail_tbl, "Selected Points Used for f2": selected}
                 if boot_tbl is not None: table_map["Bootstrap f2 Confidence Intervals"] = boot_tbl
+                render_word_friendly_tables(table_map, decimals)
+
                 figure_map = {"Dissolution profiles": fig_to_png_bytes(fig_main)}
                 for title, fig in boot_figs.items(): figure_map[title] = fig_to_png_bytes(fig)
                 export_results(prefix="dissolution_f2_enhanced", report_title="Statistical Analysis Report", module_name="Dissolution Comparison (f₂)", statistical_analysis="Reference and test dissolution profiles were summarized, f2 was calculated, FDA-style checks were evaluated, and optional bootstrap intervals were supported.", offer_text="This module shows both the conventional f2 result and the criteria behind its use.", python_tools="pandas, numpy, scipy.stats, matplotlib, openpyxl, reportlab", table_map=table_map, figure_map=figure_map, conclusion="Review the selected points, FDA-style criteria, and any bootstrap interval before finalizing similarity.", decimals=decimals)
@@ -1329,7 +1411,21 @@ def render():
                         except Exception: w_stat, w_p = np.nan, np.nan
                         tests = pd.DataFrame({"Test": ["AD test of paired differences", "Paired t-test", "Wilcoxon signed-rank"], "Statistic": [ad_d, t_stat, w_stat], "P-Value": [p_d, t_p, w_p], "Conclusion": ["Normal differences" if nd else "Non-normal differences", "Significant" if t_p < alpha else "Not significant", "Significant" if (pd.notna(w_p) and w_p < alpha) else "Not significant"]})
                     report_table(tests, f"Two-sample test results (α = {alpha})", decimals)
-                    fig_box, ax = plt.subplots(figsize=(FIG_W, FIG_H)); ax.boxplot([x, y], tick_labels=[sample_a, sample_b], patch_artist=True); apply_ax_style(ax, "Two-sample comparison", "Sample", "Value", plot_key="Two-sample box plot"); show_figure(fig_box)
+                    
+                    fig_box, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+                    bp = ax.boxplot([x, y], tick_labels=[sample_a, sample_b], patch_artist=True, showfliers=False, medianprops=dict(color="#111827", linewidth=2.0))
+                    for patch, color in zip(bp['boxes'], [PRIMARY_COLOR, SECONDARY_COLOR]):
+                        patch.set_facecolor(color)
+                        patch.set_alpha(0.15)
+                        patch.set_edgecolor(color)
+                        patch.set_linewidth(1.5)
+                    # Add jitter overlay
+                    for i, arr in enumerate([x, y]):
+                        xj = np.random.normal(i + 1, 0.05, size=len(arr))
+                        ax.plot(xj, arr, 'o', color=[PRIMARY_COLOR, SECONDARY_COLOR][i], alpha=0.65, markeredgecolor='white', zorder=3)
+                    apply_ax_style(ax, "Two-sample comparison", "Sample", "Value", plot_key="Two-sample box plot")
+                    show_figure(fig_box)
+
                     fig_violin, axv = plt.subplots(figsize=(FIG_W, FIG_H))
                     violin_parts = axv.violinplot([x, y], positions=[1, 2], showmeans=True, showextrema=True)
                     for body, color in zip(violin_parts["bodies"], [PRIMARY_COLOR, SECONDARY_COLOR]):
@@ -1343,13 +1439,24 @@ def render():
                     axv.set_xticks([1, 2]); axv.set_xticklabels([sample_a, sample_b])
                     apply_ax_style(axv, "Two-sample violin plot", "Sample", "Value", plot_key="Two-sample box plot")
                     show_figure(fig_violin)
+                    
                     fig_dens, ax2 = plt.subplots(figsize=(FIG_W, FIG_H))
                     if len(np.unique(x)) > 1:
-                        xs = np.linspace(np.min(x), np.max(x), 200); ax2.plot(xs, gaussian_kde(x)(xs), color=PRIMARY_COLOR, lw=2, label=sample_a)
+                        xs = np.linspace(np.min(x), np.max(x), 200)
+                        ys = gaussian_kde(x)(xs)
+                        ax2.plot(xs, ys, color=PRIMARY_COLOR, lw=2, label=sample_a)
+                        ax2.fill_between(xs, 0, ys, color=PRIMARY_COLOR, alpha=0.1)
                     if len(np.unique(y)) > 1:
-                        ys = np.linspace(np.min(y), np.max(y), 200); ax2.plot(ys, gaussian_kde(y)(ys), color=SECONDARY_COLOR, lw=2, label=sample_b)
+                        ys2 = np.linspace(np.min(y), np.max(y), 200)
+                        ys2_dens = gaussian_kde(y)(ys2)
+                        ax2.plot(ys2, ys2_dens, color=SECONDARY_COLOR, lw=2, label=sample_b)
+                        ax2.fill_between(ys2, 0, ys2_dens, color=SECONDARY_COLOR, alpha=0.1)
                     apply_ax_style(ax2, "Density comparison", "Value", "Density", legend=True, plot_key="Two-sample density plot"); show_figure(fig_dens)
-                    export_results(prefix="two_sample_tests", report_title="Statistical Analysis Report", module_name="Two-Sample Tests", statistical_analysis="Two selected sample columns were compared using normality checks and either independent- or paired-sample tests.", offer_text="This module compares two populations for differences in means or distributions.", python_tools="pandas, numpy, scipy.stats, statsmodels, matplotlib, openpyxl, reportlab", table_map={"Summary": desc, "Tests": tests}, figure_map={"Box plot": fig_to_png_bytes(fig_box), "Violin plot": fig_to_png_bytes(fig_violin), "Density plot": fig_to_png_bytes(fig_dens)}, conclusion="Review both parametric and non-parametric results when deciding whether the two samples differ.", decimals=decimals)
+                    
+                    table_map = {"Summary": desc, "Tests": tests}
+                    render_word_friendly_tables(table_map, decimals)
+
+                    export_results(prefix="two_sample_tests", report_title="Statistical Analysis Report", module_name="Two-Sample Tests", statistical_analysis="Two selected sample columns were compared using normality checks and either independent- or paired-sample tests.", offer_text="This module compares two populations for differences in means or distributions.", python_tools="pandas, numpy, scipy.stats, statsmodels, matplotlib, openpyxl, reportlab", table_map=table_map, figure_map={"Box plot": fig_to_png_bytes(fig_box), "Violin plot": fig_to_png_bytes(fig_violin), "Density plot": fig_to_png_bytes(fig_dens)}, conclusion="Review both parametric and non-parametric results when deciding whether the two samples differ.", decimals=decimals)
             except Exception as e:
                 st.error(str(e))
 
@@ -1404,16 +1511,21 @@ def render():
                 report_table(summary_tbl, "Model summary", decimals)
                 report_table(anova_tbl, f"{model_kind} table", decimals)
                 report_table(coef_tbl, "Coefficients", decimals)
+                
+                table_map = {"Model Summary": summary_tbl, f"{model_kind} Table": anova_tbl, "Coefficients": coef_tbl}
+                
                 if len(factors) >= 2:
                     cell_summary = d.groupby(factors)[response].agg(["count", "mean", "std", "min", "max"]).reset_index()
                     cell_summary.columns = factors + ["N", "Mean", "Std. Deviation", "Minimum", "Maximum"]
                     report_table(cell_summary, "Cell summary statistics", decimals)
+                    table_map["Cell Summary"] = cell_summary
+
                 if len(factors) == 2:
                     fig_inter, ax = plt.subplots(figsize=(FIG_W, FIG_H))
                     for lvl in d[factors[1]].astype(str).unique():
                         sub = d[d[factors[1]].astype(str) == lvl]
                         means = sub.groupby(factors[0])[response].mean().reset_index()
-                        ax.plot(means[factors[0]].astype(str), means[response], marker='o', lw=2, label=f"{factors[1]} = {lvl}")
+                        ax.plot(means[factors[0]].astype(str), means[response], marker='o', lw=2, label=f"{factors[1]} = {lvl}", markeredgecolor='white')
                     apply_ax_style(ax, "Interaction plot", factors[0], response, legend=True, plot_key="Two-way ANOVA interaction")
                     show_figure(fig_inter)
                 else:
@@ -1422,8 +1534,9 @@ def render():
                 show_figure(fig_res); fig_qq = qq_plot(model.resid, title="Normal probability plot of model residuals"); show_figure(fig_qq)
                 figure_map = {"Residuals vs fitted": fig_to_png_bytes(fig_res), "Normal probability plot": fig_to_png_bytes(fig_qq)}
                 if fig_inter is not None: figure_map["Interaction plot"] = fig_to_png_bytes(fig_inter)
-                table_map = {"Model Summary": summary_tbl, f"{model_kind} Table": anova_tbl, "Coefficients": coef_tbl}
-                if len(factors) >= 2: table_map["Cell Summary"] = cell_summary
+                
+                render_word_friendly_tables(table_map, decimals)
+
                 export_results(prefix="glm_module", report_title="Statistical Analysis Report", module_name=model_kind, statistical_analysis="A linear model was fitted using selected categorical factors and optional numeric covariates. ANOVA and coefficient tables were calculated from the fitted model.", offer_text="This module works as classic two-way ANOVA for two factors, and naturally extends to a general linear model when more factors or covariates are added.", python_tools="pandas, numpy, statsmodels, matplotlib, openpyxl, reportlab", table_map=table_map, figure_map=figure_map, conclusion="Review factor effects, covariate effects, interaction terms, and residual diagnostics before interpreting the model.", decimals=decimals)
             except Exception as e:
                 st.error(str(e))
@@ -1548,18 +1661,33 @@ def render():
 
                     fig_interval, ax = plt.subplots(figsize=(FIG_W, FIG_H))
                     colors = [PRIMARY_COLOR, SECONDARY_COLOR, TERTIARY_COLOR]
+                    for i in range(1, len(stats_objs) + 1):
+                        if i % 2 == 0:
+                            ax.axhspan(i - 0.5, i + 0.5, color="#f9fafb", alpha=1.0, zorder=0)
+
                     for i, s in enumerate(stats_objs, start=1):
                         col = colors[(i - 1) % len(colors)]
-                        ax.plot([s["tol_lower"], s["tol_upper"]], [i, i], color=col, alpha=0.25, lw=8, solid_capstyle="round")
-                        ax.plot([s["ci_lower"], s["ci_upper"]], [i, i], color=col, lw=4, solid_capstyle="round")
-                        ax.scatter([s["mean"]], [i], color=col, s=80, zorder=3)
+                        ax.plot([s["tol_lower"], s["tol_upper"]], [i, i], color=col, alpha=0.25, lw=8, solid_capstyle="round", zorder=2)
+                        ax.plot([s["ci_lower"], s["ci_upper"]], [i, i], color=col, lw=4, solid_capstyle="round", zorder=2)
+                        ax.scatter([s["mean"]], [i], color=col, s=80, edgecolors="white", linewidth=1.5, zorder=3)
                     ax.set_yticks(range(1, len(stats_objs) + 1))
                     ax.set_yticklabels(labels)
                     apply_ax_style(ax, "Mean with confidence and tolerance intervals", "Value", "Sample", plot_key="Tolerance/CI box plot")
                     show_figure(fig_interval, "Mean with confidence and tolerance intervals")
 
                     fig_box, ax = plt.subplots(figsize=(FIG_W, FIG_H))
-                    ax.boxplot(data_list, tick_labels=labels, patch_artist=True)
+                    bp = ax.boxplot(data_list, tick_labels=labels, patch_artist=True, showfliers=False, medianprops=dict(color="#111827", linewidth=2.0))
+                    for patch, col in zip(bp["boxes"], [colors[i % len(colors)] for i in range(len(data_list))]):
+                        patch.set_facecolor(col)
+                        patch.set_alpha(0.15)
+                        patch.set_edgecolor(col)
+                        patch.set_linewidth(1.5)
+                        
+                    for i, arr in enumerate(data_list):
+                        y_val = arr
+                        x_val = np.random.normal(i + 1, 0.05, size=len(y_val))
+                        ax.plot(x_val, y_val, 'o', color=colors[i % len(colors)], alpha=0.65, markeredgecolor='white', markeredgewidth=0.8, zorder=3)
+                            
                     apply_ax_style(ax, "Sample distributions", "Sample", "Value", plot_key="Tolerance/CI box plot")
                     show_figure(fig_box, "Sample distributions")
 
@@ -1574,12 +1702,18 @@ def render():
                     density_bounds = [_extended_density_grid(arr) for arr in data_list]
                     global_xmin = min(float(np.min(xs)) for xs, _ in density_bounds)
                     global_xmax = max(float(np.max(xs)) for xs, _ in density_bounds)
+                    global_ymax = max([np.max(ys) for xs, ys in density_bounds] + [0])
+                    
                     for i, arr in enumerate(data_list):
                         col = colors[i % len(colors)]
                         xs, ys = density_bounds[i]
-                        ax.hist(arr, bins=bins, range=(global_xmin, global_xmax), density=True, alpha=0.20, color=col, label=f"{labels[i]} histogram")
+                        ax.hist(arr, bins=bins, range=(global_xmin, global_xmax), density=True, alpha=0.25, color=col, edgecolor='white', linewidth=1.2, label=f"{labels[i]} histogram")
                         if len(np.unique(arr)) > 1:
-                            ax.plot(xs, ys, color=col, lw=2, label=f"{labels[i]} density")
+                            ax.plot(xs, ys, color=col, lw=2.5, label=f"{labels[i]} density")
+                            ax.fill_between(xs, 0, ys, color=col, alpha=0.10)
+                        rug_y = -0.02 * global_ymax - (i * 0.015 * global_ymax)
+                        ax.plot(arr, np.full_like(arr, rug_y), '|', color=col, markersize=8, markeredgewidth=1.5, alpha=0.7)
+                        
                     ax.set_xlim(global_xmin, global_xmax)
                     apply_ax_style(ax, "Histogram and density view", "Value", "Density", legend=True, plot_key="Tolerance/CI box plot")
                     show_figure(fig_hist, "Histogram and density view")
@@ -1588,7 +1722,16 @@ def render():
                     fig_qq, axes = plt.subplots(1, len(stats_objs), figsize=(qq_w, FIG_H))
                     axes = np.atleast_1d(axes)
                     for ax_i, s in zip(axes, stats_objs):
-                        stats.probplot(s["raw"], dist="norm", plot=ax_i)
+                        res = stats.probplot(s["raw"], dist="norm", plot=None)
+                        x_th, y_data = res[0]
+                        slope, intercept, r = res[1]
+                        col = colors[stats_objs.index(s) % len(colors)]
+                        
+                        ax_i.plot(x_th, y_data, 'o', color=col, ms=6, alpha=0.8, markeredgecolor='white', markeredgewidth=0.8)
+                        x_val_line = np.array([np.min(x_th), np.max(x_th)])
+                        y_val_line = slope * x_val_line + intercept
+                        ax_i.plot(x_val_line, y_val_line, color="#111827", ls='--', lw=1.5)
+                        
                         apply_ax_style(ax_i, f"Normal probability plot: {s['label']}", "Theoretical quantiles", "Ordered values", plot_key="Q-Q plot")
                     fig_qq.tight_layout(pad=1.0)
                     show_figure(fig_qq, "Normal probability plots")
@@ -1600,6 +1743,8 @@ def render():
                         "Histogram and density view": fig_to_png_bytes(fig_hist),
                         "Normal probability plots": fig_to_png_bytes(fig_qq),
                     }
+                    
+                    render_word_friendly_tables(table_map, decimals)
 
                     export_results(
                         prefix="tolerance_confidence_intervals",
@@ -1644,13 +1789,13 @@ def render():
                     if group_col != "(None)":
                         unique_groups = list(scores_df["Group"].unique())
                         for i, grp in enumerate(unique_groups):
-                            col = color_cycle[i % len(color_cycle)]; m = scores_df["Group"] == grp; ax.scatter(scores_df.loc[m, "PC1"], scores_df.loc[m, "PC2"], s=score_cfg["marker_size"], color=col, label=str(grp))
+                            col = color_cycle[i % len(color_cycle)]; m = scores_df["Group"] == grp; ax.scatter(scores_df.loc[m, "PC1"], scores_df.loc[m, "PC2"], s=score_cfg["marker_size"], color=col, label=str(grp), edgecolors="white", linewidth=0.5)
                             if show_ellipses and ellipse_mode in ["By group", "Both"]:
                                 draw_conf_ellipse(scores_df.loc[m, ["PC1", "PC2"]].to_numpy(), ax, edgecolor=col, facecolor=col, plot_key="PCA score plot")
                         if show_ellipses and ellipse_mode in ["Overall", "Both"]:
                             draw_conf_ellipse(scores_df[["PC1", "PC2"]].to_numpy(), ax, edgecolor="#111827", facecolor="#111827", plot_key="PCA score plot")
                     else:
-                        col = score_cfg["primary_color"]; ax.scatter(scores_df["PC1"], scores_df["PC2"], s=score_cfg["marker_size"], color=col, label="Scores")
+                        col = score_cfg["primary_color"]; ax.scatter(scores_df["PC1"], scores_df["PC2"], s=score_cfg["marker_size"], color=col, label="Scores", edgecolors="white", linewidth=0.5)
                         if show_ellipses:
                             draw_conf_ellipse(scores_df[["PC1", "PC2"]].to_numpy(), ax, edgecolor=col, facecolor=col, plot_key="PCA score plot")
                     if label_col != "(None)":
@@ -1662,6 +1807,10 @@ def render():
                     for i, var in enumerate(vars_sel):
                         ax2.arrow(0, 0, loadings[i, 0], loadings[i, 1], head_width=load_cfg["arrow_size"], length_includes_head=True, color=load_cfg["primary_color"], lw=load_cfg["line_width"], ls=load_cfg["line_style"]); ax2.text(loadings[i, 0], loadings[i, 1], var)
                     lim = max(1.1, np.max(np.abs(loadings)) * 1.2); ax2.set_xlim(-lim, lim); ax2.set_ylim(-lim, lim); apply_ax_style(ax2, "PCA loading plot", "PC1", "PC2", plot_key="PCA loading plot"); show_figure(fig_load)
-                    export_results(prefix="pca_analysis", report_title="Statistical Analysis Report", module_name="PCA Analysis", statistical_analysis="PCA was performed on selected numeric variables after standardization. Score and loading plots were generated, with optional labels, grouping, and confidence ellipses.", offer_text="This module reduces dimensionality and helps visualize clustering, separation, and variable influence patterns.", python_tools="pandas, numpy, sklearn PCA, matplotlib, openpyxl, reportlab", table_map={"Explained Variance": eig, "Loadings": load_df, "Scores": scores_df.reset_index(drop=True)}, figure_map={"PCA score plot": fig_to_png_bytes(fig_scores), "PCA loading plot": fig_to_png_bytes(fig_load)}, conclusion="Use the score plot, loadings, and optional ellipses together to interpret grouping and variable contribution.", decimals=decimals)
+                    
+                    table_map = {"Explained Variance": eig, "Loadings": load_df, "Scores": scores_df.reset_index(drop=True)}
+                    render_word_friendly_tables(table_map, decimals)
+
+                    export_results(prefix="pca_analysis", report_title="Statistical Analysis Report", module_name="PCA Analysis", statistical_analysis="PCA was performed on selected numeric variables after standardization. Score and loading plots were generated, with optional labels, grouping, and confidence ellipses.", offer_text="This module reduces dimensionality and helps visualize clustering, separation, and variable influence patterns.", python_tools="pandas, numpy, sklearn PCA, matplotlib, openpyxl, reportlab", table_map=table_map, figure_map={"PCA score plot": fig_to_png_bytes(fig_scores), "PCA loading plot": fig_to_png_bytes(fig_load)}, conclusion="Use the score plot, loadings, and optional ellipses together to interpret grouping and variable contribution.", decimals=decimals)
             except Exception as e:
                 st.error(str(e))
