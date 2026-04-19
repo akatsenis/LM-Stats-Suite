@@ -1,5 +1,6 @@
 import modules.common as common
 from modules.common import *
+from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
 st = common.st
 pd = common.pd
@@ -440,6 +441,48 @@ def _anova_multi_groups(sample_arrays):
     })
     return anova_tbl, model_tbl
 
+
+
+
+def _tukey_pairwise_figure(sample_arrays, alpha=0.05):
+    if len(sample_arrays) < 3:
+        return None
+    groups = []
+    values = []
+    for label, arr in sample_arrays:
+        arr = np.asarray(arr, dtype=float)
+        arr = arr[np.isfinite(arr)]
+        if arr.size == 0:
+            continue
+        groups.extend([label] * arr.size)
+        values.extend(arr.tolist())
+    if len(set(groups)) < 3:
+        return None
+    try:
+        tukey = pairwise_tukeyhsd(endog=np.asarray(values, dtype=float), groups=np.asarray(groups, dtype=object), alpha=alpha)
+        summary = pd.DataFrame(tukey.summary().data[1:], columns=tukey.summary().data[0])
+    except Exception:
+        return None
+    for col in ["meandiff", "p-adj", "lower", "upper"]:
+        if col in summary.columns:
+            summary[col] = pd.to_numeric(summary[col], errors="coerce")
+    reject = summary["reject"].astype(str).str.lower().isin(["true", "1", "yes"]) if "reject" in summary.columns else pd.Series(False, index=summary.index)
+    y = np.arange(len(summary), 0, -1, dtype=float)
+    fig_h = max(FIG_H, 0.50 * len(summary) + 1.8)
+    fig, ax = plt.subplots(figsize=(FIG_W * 1.05, fig_h))
+    cfg = common.safe_get_plot_cfg("Descriptive summary")
+    ax.axvline(0, color="#64748b", lw=1.0, ls="--")
+    colors = np.where(reject.to_numpy(), cfg["secondary_color"], cfg["primary_color"])
+    for i, (_, row) in enumerate(summary.iterrows()):
+        ax.hlines(y[i], row["lower"], row["upper"], color=colors[i], lw=2.2)
+        ax.scatter(row["meandiff"], y[i], color=colors[i], s=46, zorder=3)
+    labels = [f"{g1} - {g2}" for g1, g2 in zip(summary["group1"], summary["group2"])]
+    ax.set_yticks(y)
+    ax.set_yticklabels(labels)
+    ax.set_ylim(0.4, len(summary) + 0.6)
+    apply_ax_style(ax, "Tukey HSD simultaneous confidence intervals", "Mean difference", "Comparison", legend=False, plot_key="Tolerance/CI box plot")
+    ax.grid(axis="x", alpha=cfg["grid_alpha"])
+    return fig
 
 def _welch_mean_diff_ci(ref, test, conf=0.95):
     ref = np.asarray(ref, dtype=float)
