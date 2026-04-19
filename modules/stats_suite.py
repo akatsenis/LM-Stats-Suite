@@ -1,6 +1,5 @@
 import modules.common as common
 from modules.common import *
-from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
 st = common.st
 pd = common.pd
@@ -244,6 +243,7 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
         for key in ["max", "whisker_upper", "q3", "mean", "tol_upper", "ci_upper"]:
             if pd.notna(s.get(key, np.nan)):
                 maxs.append(s[key])
+
     sr = None
     if shaded_range is not None:
         sr = np.asarray(shaded_range, dtype=float).ravel()
@@ -252,17 +252,23 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
             maxs += [float(np.max(sr))]
         else:
             sr = None
+
     x_min = min(mins) if mins else 0.0
     x_max = max(maxs) if maxs else 1.0
     pad = 0.08 * (x_max - x_min if x_max > x_min else 1.0)
     x_lo, x_hi = x_min - pad, x_max + pad
+
     fig, (ax, axr) = plt.subplots(
         1,
         2,
-        figsize=(max(cfg["fig_w"] * 2.00, 13.6), max(cfg["fig_h"] * 1.70, 7.8)),
-        gridspec_kw={"width_ratios": [1.65, 1]},
+        figsize=(max(cfg["fig_w"] * 1.55, 11.4), max(cfg["fig_h"] * 1.55, 7.0)),
+        gridspec_kw={"width_ratios": [1.15, 1.0]},
     )
 
+    density_label_y = 7.00
+    density_base_y = 6.50
+    density_height = 0.52
+    row_centers = [5.70, 4.80, 3.90, 3.00, 2.10, 1.20]
     row_names = [
         "Whisker Min/Max",
         "Min/Max",
@@ -271,10 +277,6 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
         f"{tol_cov}%/{tol_conf}% Tol. Interval",
         f"{mean_ci_conf}% CI for Mean",
     ]
-    density_y0 = 7.0
-    row_gap = 1.0
-    row_centers = [6.0, 5.0, 4.0, 3.0, 2.0, 1.0]
-    density_height = 0.62
 
     if sr is not None:
         ax.axvspan(sr[0], sr[1], color=cfg["band_color"], alpha=0.18)
@@ -283,7 +285,7 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
         if shaded_label:
             ax.text(
                 float(np.mean(sr)),
-                density_y0 + density_height + 0.08,
+                density_label_y + density_height * 0.90,
                 shaded_label,
                 color=cfg["secondary_color"],
                 ha="center",
@@ -304,14 +306,14 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
                 dens = np.zeros_like(xgrid)
         else:
             dens = np.zeros_like(xgrid)
-        ax.plot(xgrid, density_y0 + dens, color=col, lw=cfg["line_width"], ls=cfg["line_style"])
-    ax.hlines(density_y0, x_lo, x_hi, color="#111827", lw=0.8)
+        ax.plot(xgrid, density_base_y + dens, color=col, lw=cfg["line_width"], ls=cfg["line_style"])
+    ax.hlines(density_base_y, x_lo, x_hi, color="#111827", lw=0.8)
 
-    separators = [6.5, 5.5, 4.5, 3.5, 2.5, 1.5, 0.5]
+    separators = [6.50, 5.25, 4.35, 3.45, 2.55, 1.65, 0.75]
     for y_sep in separators:
         ax.hlines(y_sep, x_lo, x_hi, color="#d1d5db", lw=0.8)
 
-    offsets = np.linspace(0.18, -0.18, len(stats_list)) if len(stats_list) > 1 else np.array([0.0])
+    offsets = np.linspace(0.16, -0.16, len(stats_list)) if len(stats_list) > 1 else np.array([0.0])
     for ridx, yc in enumerate(row_centers):
         for i, s in enumerate(stats_list):
             yy = yc + offsets[i]
@@ -340,8 +342,8 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
                 ax.plot(s["mean"], yy, "o", color=col, ms=max(4.5, cfg["marker_size"] / 10))
 
     ax.set_xlim(x_lo, x_hi)
-    ax.set_ylim(0.45, 7.85)
-    ax.set_yticks([density_y0] + row_centers)
+    ax.set_ylim(0.70, 7.55)
+    ax.set_yticks([density_label_y] + row_centers)
     ax.set_yticklabels(["Normal distribution"] + row_names)
     apply_ax_style(ax, title, "", "", legend=False, plot_key="Descriptive summary")
     ax.grid(axis="x", alpha=cfg["grid_alpha"])
@@ -355,39 +357,49 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
     axr.axis("off")
     axr.set_title("Graphical Summary with Descriptive Statistics", fontsize=13, weight="bold", pad=10)
     n_stats = len(stats_list)
-    col_positions = np.linspace(0.40, 0.96, n_stats) if n_stats > 0 else np.array([0.68])
+    if n_stats <= 3:
+        col_positions = np.linspace(0.68, 0.96, n_stats) if n_stats > 0 else np.array([0.82])
+        header_fs = 11.0
+        body_fs = 9.6
+        row_step = 0.053
+    else:
+        col_positions = np.linspace(0.66, 0.97, n_stats) if n_stats > 0 else np.array([0.82])
+        header_fs = 10.0
+        body_fs = 8.8
+        row_step = 0.048
     label_x = 0.02
-    header_fs = 12 if n_stats <= 3 else 10.5
-    body_fs = 10.5 if n_stats <= 3 else 9.0
     y = 0.965
     for xpos, s in zip(col_positions, stats_list):
         axr.text(xpos, y, s["label"], ha="center", va="top", fontsize=header_fs, weight="bold")
     y -= 0.055
+
     rows = [
-        ("Normality (AD), p-value", [f"{s['ad_p']:.3f}" if pd.notna(s['ad_p']) else "-" for s in stats_list]),
-        ("Normality (Shapiro), p-value", [f"{s['shapiro_p']:.3f}" if pd.notna(s['shapiro_p']) else "-" for s in stats_list]),
-        ("Mean", [f"{s['mean']:.3f}" for s in stats_list]),
-        ("SD", [f"{s['sd']:.3f}" if pd.notna(s['sd']) else "-" for s in stats_list]),
-        ("N", [f"{s['n']:.0f}" for s in stats_list]),
-        ("Variance", [f"{s['var']:.3f}" if pd.notna(s['var']) else "-" for s in stats_list]),
-        ("Minimum", [f"{s['min']:.3f}" for s in stats_list]),
-        ("1st Quartile", [f"{s['q1']:.3f}" for s in stats_list]),
-        ("Median", [f"{s['median']:.3f}" for s in stats_list]),
-        ("3rd Quartile", [f"{s['q3']:.3f}" for s in stats_list]),
-        ("Maximum", [f"{s['max']:.3f}" for s in stats_list]),
-        (f"{tol_cov}%/{tol_conf}% Tol. Int. Lower", [f"{s['tol_lower']:.3f}" if pd.notna(s['tol_lower']) else "-" for s in stats_list]),
-        (f"{tol_cov}%/{tol_conf}% Tol. Int. Upper", [f"{s['tol_upper']:.3f}" if pd.notna(s['tol_upper']) else "-" for s in stats_list]),
-        (f"{mean_ci_conf}% LCI for Mean", [f"{s['ci_lower']:.3f}" if pd.notna(s['ci_lower']) else "-" for s in stats_list]),
-        (f"{mean_ci_conf}% UCI for Mean", [f"{s['ci_upper']:.3f}" if pd.notna(s['ci_upper']) else "-" for s in stats_list]),
+        ("Normality", None, True),
+        ("   AD, p-value", [f"{s['ad_p']:.3f}" if pd.notna(s['ad_p']) else "-" for s in stats_list], False),
+        ("   Shapiro, p-value", [f"{s['shapiro_p']:.3f}" if pd.notna(s['shapiro_p']) else "-" for s in stats_list], False),
+        ("Mean", [f"{s['mean']:.3f}" for s in stats_list], True),
+        ("SD", [f"{s['sd']:.3f}" if pd.notna(s['sd']) else "-" for s in stats_list], True),
+        ("N", [f"{s['n']:.0f}" for s in stats_list], True),
+        ("Variance", [f"{s['var']:.3f}" if pd.notna(s['var']) else "-" for s in stats_list], True),
+        ("Minimum", [f"{s['min']:.3f}" for s in stats_list], True),
+        ("1st Quartile", [f"{s['q1']:.3f}" for s in stats_list], True),
+        ("Median", [f"{s['median']:.3f}" for s in stats_list], True),
+        ("3rd Quartile", [f"{s['q3']:.3f}" for s in stats_list], True),
+        ("Maximum", [f"{s['max']:.3f}" for s in stats_list], True),
+        (f"{tol_cov}%/{tol_conf}% LTI", [f"{s['tol_lower']:.3f}" if pd.notna(s['tol_lower']) else "-" for s in stats_list], True),
+        (f"{tol_cov}%/{tol_conf}% UTI", [f"{s['tol_upper']:.3f}" if pd.notna(s['tol_upper']) else "-" for s in stats_list], True),
+        (f"{mean_ci_conf}% LCI for Mean", [f"{s['ci_lower']:.3f}" if pd.notna(s['ci_lower']) else "-" for s in stats_list], True),
+        (f"{mean_ci_conf}% UCI for Mean", [f"{s['ci_upper']:.3f}" if pd.notna(s['ci_upper']) else "-" for s in stats_list], True),
     ]
-    row_step = 0.056 if n_stats <= 3 else 0.051
-    for label, vals in rows:
-        axr.text(label_x, y, label, ha="left", va="center", fontsize=body_fs, weight="bold")
-        for xpos, val in zip(col_positions, vals):
-            axr.text(xpos, y, val, ha="center", va="center", fontsize=body_fs)
+    for label, vals, bold in rows:
+        axr.text(label_x, y, label, ha="left", va="center", fontsize=body_fs, weight=("bold" if bold else "normal"))
+        if vals is not None:
+            for xpos, val in zip(col_positions, vals):
+                axr.text(xpos, y, val, ha="center", va="center", fontsize=body_fs)
         y -= row_step
     fig.tight_layout(rect=[0, 0, 1, 0.985])
     return fig
+
 
 
 
@@ -427,49 +439,6 @@ def _anova_multi_groups(sample_arrays):
         "Adjusted R²": [rsq_adj],
     })
     return anova_tbl, model_tbl
-
-
-def _tukey_pairwise_figure(sample_arrays, alpha=0.05):
-    if len(sample_arrays) < 3:
-        return None
-    groups = []
-    values = []
-    for label, arr in sample_arrays:
-        arr = np.asarray(arr, dtype=float)
-        arr = arr[np.isfinite(arr)]
-        if arr.size == 0:
-            continue
-        groups.extend([label] * arr.size)
-        values.extend(arr.tolist())
-    if len(set(groups)) < 3:
-        return None
-    try:
-        tukey = pairwise_tukeyhsd(endog=np.asarray(values, dtype=float), groups=np.asarray(groups, dtype=object), alpha=alpha)
-        summary = pd.DataFrame(tukey.summary().data[1:], columns=tukey.summary().data[0])
-    except Exception:
-        return None
-    for col in ["meandiff", "p-adj", "lower", "upper"]:
-        if col in summary.columns:
-            summary[col] = pd.to_numeric(summary[col], errors="coerce")
-    if "reject" in summary.columns:
-        reject = summary["reject"].astype(str).str.lower().isin(["true", "1", "yes"])
-    else:
-        reject = pd.Series(False, index=summary.index)
-    y = np.arange(len(summary), 0, -1, dtype=float)
-    fig_h = max(FIG_H, 0.50 * len(summary) + 1.8)
-    fig, ax = plt.subplots(figsize=(FIG_W * 1.18, fig_h))
-    ax.axvline(0, color="#64748b", lw=1.0, ls="--")
-    colors = np.where(reject.to_numpy(), common.safe_get_plot_cfg("Descriptive summary")["secondary_color"], common.safe_get_plot_cfg("Descriptive summary")["primary_color"])
-    for i, (_, row) in enumerate(summary.iterrows()):
-        ax.hlines(y[i], row["lower"], row["upper"], color=colors[i], lw=2.2)
-        ax.scatter(row["meandiff"], y[i], color=colors[i], s=46, zorder=3)
-    labels = [f"{g1} - {g2}" for g1, g2 in zip(summary["group1"], summary["group2"])]
-    ax.set_yticks(y)
-    ax.set_yticklabels(labels)
-    ax.set_ylim(0.4, len(summary) + 0.6)
-    apply_ax_style(ax, "Tukey HSD simultaneous confidence intervals", "Mean difference", "Comparison", legend=False, plot_key="Tolerance/CI box plot")
-    ax.grid(axis="x", alpha=common.safe_get_plot_cfg("Descriptive summary")["grid_alpha"])
-    return fig
 
 
 def _welch_mean_diff_ci(ref, test, conf=0.95):
@@ -671,12 +640,19 @@ def render():
             st.button("Sample Data", key="sample_desc", on_click=load_sample_text, args=("desc_input", "desc"))
         with c2:
             data_input = st.text_area("Data (paste with headers)", height=240, key="desc_input")
-        decimals = st.slider("Decimals", 1, 8, DEFAULT_DECIMALS, key="desc_dec")
-        alpha = st.slider("Significance level α", 0.001, 0.100, 0.050, 0.001, key="desc_alpha")
-        mean_ci_conf = st.slider("Mean CI confidence (%)", 80, 99, 95, 1, key="desc_mean_ci")
-        tol_cov = st.slider("Tolerance interval coverage (%)", 80, 99, 99, 1, key="desc_tol_cov")
-        tol_conf = st.slider("Tolerance interval confidence (%)", 80, 99, 95, 1, key="desc_tol_conf")
-        interval_side = st.selectbox("Interval side", ["two-sided", "upper", "lower"], index=0, format_func=lambda x: {"two-sided": "Two-sided", "upper": "Upper one-sided", "lower": "Lower one-sided"}[x], key="desc_interval_side")
+        p1, p2, p3, p4, p5, p6 = st.columns([0.8, 1.1, 1.1, 1.1, 1.1, 1.2])
+        with p1:
+            decimals = st.number_input("Decimals", min_value=1, max_value=8, value=int(DEFAULT_DECIMALS), step=1, key="desc_dec")
+        with p2:
+            alpha = st.number_input("Significance level α", min_value=0.001, max_value=0.100, value=0.050, step=0.001, format="%.3f", key="desc_alpha")
+        with p3:
+            mean_ci_conf = st.number_input("Mean CI confidence (%)", min_value=80, max_value=99, value=95, step=1, key="desc_mean_ci")
+        with p4:
+            tol_cov = st.number_input("Tolerance interval coverage (%)", min_value=80, max_value=99, value=99, step=1, key="desc_tol_cov")
+        with p5:
+            tol_conf = st.number_input("Tolerance interval confidence (%)", min_value=80, max_value=99, value=95, step=1, key="desc_tol_conf")
+        with p6:
+            interval_side = st.selectbox("Interval side", ["two-sided", "upper", "lower"], index=0, format_func=lambda x: {"two-sided": "Two-sided", "upper": "Upper one-sided", "lower": "Lower one-sided"}[x], key="desc_interval_side")
         if data_input:
             df = parse_pasted_table(data_input, header=True)
             if df is None or df.empty:
@@ -766,11 +742,6 @@ def render():
                             "Confidence and Tolerance Intervals": interval_tbl,
                         }
 
-                        info_box("This table summarizes the main descriptive statistics for each selected sample, including center, spread, and quartiles.")
-                        report_table(desc_tbl, "Descriptive summary", decimals)
-                        info_box("These intervals show the uncertainty around each sample mean and the expected range covering the chosen proportion of the population.")
-                        report_table(interval_tbl, "Confidence and tolerance intervals", decimals)
-
                         tukey_fig = None
                         if not is_single:
                             anova_tbl, model_tbl = _anova_multi_groups(sample_arrays)
@@ -794,6 +765,21 @@ def render():
                                 table_map["Reference Comparison Tests"] = tests_tbl
 
                         table_map["Normality Review"] = normality_tbl
+                        labels = [s["label"] for s in stats_objs]
+                        data_list = [s["raw"] for s in stats_objs]
+                        colors = [PRIMARY_COLOR, SECONDARY_COLOR, TERTIARY_COLOR, "#9467bd", "#8c564b", "#e377c2", "#17becf", "#bcbd22"]
+
+                        figure_map = {}
+                        info_box("This graphical summary combines distribution shape, spread, quartiles, tolerance interval, and confidence interval for the selected sample set in one comparison view.")
+                        fig_summary = _graphical_summary_figure(stats_objs, "Graphical Summary", tol_cov, tol_conf, mean_ci_conf)
+                        show_figure(fig_summary, "Graphical summary")
+                        figure_map["Graphical Summary"] = fig_to_png_bytes(fig_summary)
+                        plt.close(fig_summary)
+
+                        info_box("This table summarizes the main descriptive statistics for each selected sample, including center, spread, and quartiles.")
+                        report_table(desc_tbl, "Descriptive summary", decimals)
+                        info_box("These intervals show the uncertainty around each sample mean and the expected range covering the chosen proportion of the population.")
+                        report_table(interval_tbl, "Confidence and tolerance intervals", decimals)
                         info_box("These normality checks support the visual interpretation of the data distribution and help guide parametric test usage. When paired analysis is requested, the normality of paired differences is also included.")
                         report_table(normality_tbl, "Normality review", decimals)
 
@@ -809,17 +795,6 @@ def render():
                                 pair_msg = " Paired tests are also shown using complete row-wise pairs because paired analysis was requested." if paired_compare else ""
                                 info_box("These reference-based hypothesis tests compare each selected sample against the reference using Student's t-test, and, only when justified by diagnostics, Welch's t-test, Mann-Whitney, or Wilcoxon signed-rank." + pair_msg)
                                 report_table(tests_tbl, "Reference comparison tests", decimals)
-
-                        labels = [s["label"] for s in stats_objs]
-                        data_list = [s["raw"] for s in stats_objs]
-                        colors = [PRIMARY_COLOR, SECONDARY_COLOR, TERTIARY_COLOR, "#9467bd", "#8c564b", "#e377c2", "#17becf", "#bcbd22"]
-
-                        figure_map = {}
-                        info_box("This graphical summary combines distribution shape, spread, quartiles, tolerance interval, and confidence interval for the selected sample set in one comparison view.")
-                        fig_summary = _graphical_summary_figure(stats_objs, "Graphical Summary", tol_cov, tol_conf, mean_ci_conf)
-                        show_figure(fig_summary, "Graphical summary")
-                        figure_map["Graphical Summary"] = fig_to_png_bytes(fig_summary)
-                        plt.close(fig_summary)
 
                         info_box("This comparison plot shows the sample mean together with its confidence interval and tolerance interval for every selected sample.")
                         fig_interval, ax = plt.subplots(figsize=(FIG_W, FIG_H))
@@ -873,12 +848,6 @@ def render():
                         show_figure(fig_hist, "Histogram and density view")
                         figure_map["Histogram and density view"] = fig_to_png_bytes(fig_hist)
                         plt.close(fig_hist)
-
-                        if tukey_fig is not None:
-                            info_box("This Tukey HSD comparison plot shows the simultaneous confidence intervals for all pairwise mean differences when three or more samples are selected.")
-                            show_figure(tukey_fig, "Tukey HSD simultaneous confidence intervals")
-                            figure_map["Tukey HSD simultaneous confidence intervals"] = fig_to_png_bytes(tukey_fig)
-                            plt.close(tukey_fig)
 
                         if is_single:
                             info_box("This normal probability plot helps assess whether the sample follows an approximately normal distribution.")
