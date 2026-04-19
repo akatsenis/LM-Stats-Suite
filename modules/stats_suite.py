@@ -399,7 +399,7 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
                 ax.plot(s["mean"], yy, "o", color=col, ms=max(4.5, cfg["marker_size"] / 10))
 
     ax.set_xlim(x_lo*0.95, x_hi*1.05)
-    ax.set_ylim(0.70, 7.55)
+    ax.set_ylim(0.70, 7.05)
     ax.set_yticks([density_label_y] + row_centers)
     ax.set_yticklabels(["Normal distribution"] + row_names)
     apply_ax_style(ax, title, "", "", legend=False, plot_key="Descriptive summary")
