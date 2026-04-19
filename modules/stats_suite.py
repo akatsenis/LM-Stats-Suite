@@ -358,7 +358,7 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
 
     separators = [6.15, 5.25, 4.35, 3.45, 2.55, 1.65, 0.75]
     for y_sep in separators:
-        ax.hlines(y_sep, x_lo*0.98, x_hi*1.02, color="#d1d5db", lw=0.8)
+        ax.hlines(y_sep, x_lo*0.975, x_hi*1.025, color="#d1d5db", lw=0.8)
 
     offsets = np.linspace(0.2, -0.2, len(stats_list)) if len(stats_list) > 1 else np.array([0.0])
     for ridx, yc in enumerate(row_centers):
@@ -398,7 +398,7 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
                     ax.hlines(yy, s["ci_lower"], s["mean"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
                 ax.plot(s["mean"], yy, "o", color=col, ms=max(4.5, cfg["marker_size"] / 10))
 
-    ax.set_xlim(x_lo*0.98, x_hi*1.02)
+    ax.set_xlim(x_lo*0.975, x_hi*1.025)
     ax.set_ylim(0.70, 7.05)
     ax.set_yticks([density_label_y] + row_centers)
     ax.set_yticklabels(["Normal distribution"] + row_names)
