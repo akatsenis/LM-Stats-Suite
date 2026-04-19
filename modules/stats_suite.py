@@ -251,11 +251,13 @@ def _acceptance_band(ref, test, alpha_level=0.05):
     return m1 - tcrit * se_diff, m1 + tcrit * se_diff
 
 
+
 def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf, interval_side="two-sided", shaded_range=None, shaded_label=None):
     cfg = common.safe_get_plot_cfg("Descriptive summary")
     base_colors = [cfg["primary_color"], cfg["secondary_color"], cfg["tertiary_color"], "#9467bd", "#8c564b", "#e377c2", "#17becf", "#bcbd22"]
     colors = [base_colors[i % len(base_colors)] for i in range(len(stats_list))]
     labels = [s["label"] for s in stats_list]
+
     mins, maxs = [], []
     for s in stats_list:
         for key in ["min", "whisker_lower", "q1", "mean", "tol_lower", "ci_lower"]:
@@ -279,16 +281,21 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
     pad = 0.08 * (x_max - x_min if x_max > x_min else 1.0)
     x_lo, x_hi = x_min - pad, x_max + pad
 
+    n_stats = len(stats_list)
+    max_cols_per_block = 6
+    n_blocks = max(1, int(np.ceil(max(n_stats, 1) / max_cols_per_block)))
+    fig_h = max(cfg["fig_h"] * 1.55, 7.0 + 0.95 * (n_blocks - 1))
+
     fig, (ax, axr) = plt.subplots(
         1,
         2,
-        figsize=(max(cfg["fig_w"] * 1.55, 11.4), max(cfg["fig_h"] * 1.55, 7.0)),
-        gridspec_kw={"width_ratios": [1.15, 1.0]},
+        figsize=(max(cfg["fig_w"] * 1.55, 11.6), fig_h),
+        gridspec_kw={"width_ratios": [1.12, 1.05]},
     )
 
-    density_label_y = 7.00
-    density_base_y = 6.50
-    density_height = 0.52
+    density_label_y = 6.6
+    density_base_y = 6.15
+    density_height = 0.75
     row_centers = [5.70, 4.80, 3.90, 3.00, 2.10, 1.20]
     if interval_side == "two-sided":
         row_names = [
@@ -323,7 +330,16 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
         ax.axvline(sr[0], color=cfg["secondary_color"], ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
         ax.axvline(sr[1], color=cfg["secondary_color"], ls=cfg["aux_line_style"], lw=cfg["aux_line_width"])
         if shaded_label:
-            ax.text(float(np.mean(sr)), density_label_y + density_height * 0.90, shaded_label, color=cfg["secondary_color"], ha="center", va="bottom", fontsize=9, bbox=dict(facecolor="white", alpha=0.85, edgecolor="none", pad=2))
+            ax.text(
+                float(np.mean(sr)),
+                density_label_y + density_height * 0.90,
+                shaded_label,
+                color=cfg["secondary_color"],
+                ha="center",
+                va="bottom",
+                fontsize=9,
+                bbox=dict(facecolor="white", alpha=0.85, edgecolor="none", pad=2),
+            )
 
     xgrid = np.linspace(x_lo, x_hi, 600)
     for i, s in enumerate(stats_list):
@@ -340,11 +356,11 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
         ax.plot(xgrid, density_base_y + dens, color=col, lw=cfg["line_width"], ls=cfg["line_style"])
     ax.hlines(density_base_y, x_lo, x_hi, color="#111827", lw=0.8)
 
-    separators = [6.50, 5.25, 4.35, 3.45, 2.55, 1.65, 0.75]
+    separators = [6.15, 5.25, 4.35, 3.45, 2.55, 1.65, 0.75]
     for y_sep in separators:
-        ax.hlines(y_sep, x_lo, x_hi, color="#d1d5db", lw=0.8)
+        ax.hlines(y_sep, x_lo*0.97, x_hi*1.03, color="#d1d5db", lw=0.8)
 
-    offsets = np.linspace(0.16, -0.16, len(stats_list)) if len(stats_list) > 1 else np.array([0.0])
+    offsets = np.linspace(0.2, -0.2, len(stats_list)) if len(stats_list) > 1 else np.array([0.0])
     for ridx, yc in enumerate(row_centers):
         for i, s in enumerate(stats_list):
             yy = yc + offsets[i]
@@ -382,34 +398,23 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
                     ax.hlines(yy, s["ci_lower"], s["mean"], color=col, lw=cfg["line_width"], ls=cfg["line_style"])
                 ax.plot(s["mean"], yy, "o", color=col, ms=max(4.5, cfg["marker_size"] / 10))
 
-    ax.set_xlim(x_lo, x_hi)
-    ax.set_ylim(0.70, 7.55)
+    ax.set_xlim(x_lo*0.97, x_hi*1.03)
+    ax.set_ylim(0.70, 7.05)
     ax.set_yticks([density_label_y] + row_centers)
     ax.set_yticklabels(["Normal distribution"] + row_names)
     apply_ax_style(ax, title, "", "", legend=False, plot_key="Descriptive summary")
     ax.grid(axis="x", alpha=cfg["grid_alpha"])
     if cfg["show_legend"] and len(labels) > 1:
-        handles = [plt.Line2D([0], [0], color=colors[i], marker="o", lw=cfg["line_width"], ls=cfg["line_style"], label=labels[i]) for i in range(len(labels))]
+        handles = [
+            plt.Line2D([0], [0], color=colors[i], marker="o", lw=cfg["line_width"], ls=cfg["line_style"], label=labels[i])
+            for i in range(len(labels))
+        ]
         ax.legend(handles=handles, frameon=False, loc=cfg["legend_loc"])
 
     axr.axis("off")
+    axr.set_xlim(0, 1)
+    axr.set_ylim(0, 1)
     axr.set_title("Graphical Summary with Descriptive Statistics", fontsize=13, weight="bold", pad=10)
-    n_stats = len(stats_list)
-    if n_stats <= 3:
-        col_positions = np.linspace(0.68, 0.96, n_stats) if n_stats > 0 else np.array([0.82])
-        header_fs = 11.0
-        body_fs = 9.6
-        row_step = 0.053
-    else:
-        col_positions = np.linspace(0.66, 0.97, n_stats) if n_stats > 0 else np.array([0.82])
-        header_fs = 10.0
-        body_fs = 8.8
-        row_step = 0.048
-    label_x = 0.02
-    y = 0.965
-    for xpos, s in zip(col_positions, stats_list):
-        axr.text(xpos, y, s["label"], ha="center", va="top", fontsize=header_fs, weight="bold")
-    y -= 0.055
 
     rows = [
         ("Normality", None, True),
@@ -443,15 +448,50 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
             (f"{mean_ci_conf}% LCI for Mean", [f"{s['ci_lower']:.3f}" if pd.notna(s['ci_lower']) else "-" for s in stats_list], True),
         ])
 
-    for label, vals, bold in rows:
-        axr.text(label_x, y, label, ha="left", va="center", fontsize=body_fs, weight=("bold" if bold else "normal"))
-        if vals is not None:
-            for xpos, val in zip(col_positions, vals):
-                axr.text(xpos, y, val, ha="center", va="center", fontsize=body_fs)
-        y -= row_step
+    block_gap = 0.055 if n_blocks > 1 else 0.0
+    top_margin = 0.035
+    bottom_margin = 0.030
+    usable_h = 1.0 - top_margin - bottom_margin - block_gap * (n_blocks - 1)
+    block_h = usable_h / n_blocks
+    label_x = 0.02
+
+    for block_idx in range(n_blocks):
+        start_idx = block_idx * max_cols_per_block
+        end_idx = min((block_idx + 1) * max_cols_per_block, n_stats)
+        block_stats = stats_list[start_idx:end_idx]
+        block_len = len(block_stats)
+        if block_len == 0:
+            continue
+
+        top_y = 1.0 - top_margin - block_idx * (block_h + block_gap)
+        bottom_y = top_y - block_h
+        header_y = top_y - 0.010
+        row_start_y = top_y - 0.075
+
+        col_left = 0.60 if block_len >= 5 else 0.56
+        col_positions = np.linspace(col_left, 0.97, block_len) if block_len > 1 else np.array([0.79])
+
+        header_fs = 8.6 if block_len >= 5 else 9.3
+        body_fs = 8.0 if block_len >= 5 else 8.8
+        row_step = min(0.055, (row_start_y - (bottom_y + 0.03)) / max(len(rows), 1))
+
+        for xpos, s in zip(col_positions, block_stats):
+            axr.text(xpos, header_y, s["label"], ha="center", va="top", fontsize=header_fs, weight="bold")
+
+        y = row_start_y
+        for row_label, all_vals, bold in rows:
+            axr.text(label_x, y, row_label, ha="left", va="center", fontsize=body_fs, weight=("bold" if bold else "normal"))
+            if all_vals is not None:
+                block_vals = all_vals[start_idx:end_idx]
+                for xpos, val in zip(col_positions, block_vals):
+                    axr.text(xpos, y, val, ha="center", va="center", fontsize=body_fs)
+            y -= row_step
+
+        if block_idx < n_blocks - 1:
+            axr.hlines(bottom_y - 0.010, 0.02, 0.98, color="#d1d5db", lw=0.8)
+
     fig.tight_layout(rect=[0, 0, 1, 0.985])
     return fig
-
 
 def _anova_multi_groups(sample_arrays):
     labels = [label for label, _ in sample_arrays]
