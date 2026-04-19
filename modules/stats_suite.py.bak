@@ -259,7 +259,7 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
             dens = np.zeros_like(xgrid)
         ax.plot(xgrid, density_y0 + dens, color=col, lw=cfg["line_width"], ls=cfg["line_style"])
         ax.hlines(density_y0, x_lo, x_hi, color="#111827", lw=0.8)
-    offsets = np.linspace(0.18, -0.18, len(stats_list)) if len(stats_list) > 1 else np.array([0.0])
+    offsets = [0.10, -0.10] if len(stats_list) > 1 else [0.0]
     for ridx, yc in enumerate(row_centers):
         ax.hlines(yc - 0.37, x_lo, x_hi, color="#d1d5db", lw=0.8)
         for i, s in enumerate(stats_list):
@@ -284,41 +284,21 @@ def _graphical_summary_figure(stats_list, title, tol_cov, tol_conf, mean_ci_conf
     if cfg["show_legend"] and len(labels) > 1:
         handles = [plt.Line2D([0], [0], color=colors[i], marker='o', lw=cfg["line_width"], ls=cfg["line_style"], label=labels[i]) for i in range(len(labels))]
         ax.legend(handles=handles, frameon=False, loc=cfg["legend_loc"])
-
     axr.axis("off")
     axr.set_title("Graphical Summary with Descriptive Statistics", fontsize=13, weight="bold", pad=10)
-    n_stats = len(stats_list)
-    col_positions = np.linspace(0.40, 0.96, n_stats) if n_stats > 0 else np.array([0.68])
-    label_x = 0.02
-    header_fs = 12 if n_stats <= 3 else 10.5
-    body_fs = 10.5 if n_stats <= 3 else 9.0
-    y = 0.965
-    for xpos, s in zip(col_positions, stats_list):
-        axr.text(xpos, y, s["label"], ha="center", va="top", fontsize=header_fs, weight="bold")
-    y -= 0.055
-    rows = [
-        ("Normality (AD), p-value", [f"{s['ad_p']:.3f}" if pd.notna(s['ad_p']) else "-" for s in stats_list]),
-        ("Normality (Shapiro), p-value", [f"{s['shapiro_p']:.3f}" if pd.notna(s['shapiro_p']) else "-" for s in stats_list]),
-        ("Mean", [f"{s['mean']:.3f}" for s in stats_list]),
-        ("SD", [f"{s['sd']:.3f}" if pd.notna(s['sd']) else "-" for s in stats_list]),
-        ("N", [f"{s['n']:.0f}" for s in stats_list]),
-        ("Variance", [f"{s['var']:.3f}" if pd.notna(s['var']) else "-" for s in stats_list]),
-        ("Minimum", [f"{s['min']:.3f}" for s in stats_list]),
-        ("1st Quartile", [f"{s['q1']:.3f}" for s in stats_list]),
-        ("Median", [f"{s['median']:.3f}" for s in stats_list]),
-        ("3rd Quartile", [f"{s['q3']:.3f}" for s in stats_list]),
-        ("Maximum", [f"{s['max']:.3f}" for s in stats_list]),
-        (f"{tol_cov}%/{tol_conf}% Tol. Int. Lower", [f"{s['tol_lower']:.3f}" if pd.notna(s['tol_lower']) else "-" for s in stats_list]),
-        (f"{tol_cov}%/{tol_conf}% Tol. Int. Upper", [f"{s['tol_upper']:.3f}" if pd.notna(s['tol_upper']) else "-" for s in stats_list]),
-        (f"{mean_ci_conf}% LCI for Mean", [f"{s['ci_lower']:.3f}" if pd.notna(s['ci_lower']) else "-" for s in stats_list]),
-        (f"{mean_ci_conf}% UCI for Mean", [f"{s['ci_upper']:.3f}" if pd.notna(s['ci_upper']) else "-" for s in stats_list]),
-    ]
-    row_step = 0.056 if n_stats <= 3 else 0.051
-    for label, vals in rows:
-        axr.text(label_x, y, label, ha="left", va="center", fontsize=body_fs, weight="bold")
-        for xpos, val in zip(col_positions, vals):
-            axr.text(xpos, y, val, ha="center", va="center", fontsize=body_fs)
-        y -= row_step
+    x0, x1, x2 = 0.02, 0.72, 0.95; y = 0.94
+    if len(stats_list) == 1:
+        s = stats_list[0]
+        rows = [["Normality (AD), p-value", f"{s['ad_p']:.3f}" if pd.notna(s['ad_p']) else "-"],["Normality (Shapiro), p-value", f"{s['shapiro_p']:.3f}" if pd.notna(s['shapiro_p']) else "-"],["Mean", f"{s['mean']:.3f}"],["SD", f"{s['sd']:.3f}"],["N", f"{s['n']:.0f}"],["Variance", f"{s['var']:.3f}"],["Minimum", f"{s['min']:.3f}"],["1st Quartile", f"{s['q1']:.3f}"],["Median", f"{s['median']:.3f}"],["3rd Quartile", f"{s['q3']:.3f}"],["Maximum", f"{s['max']:.3f}"],[f"{tol_cov}%/{tol_conf}% Tol. Int. Lower", f"{s['tol_lower']:.3f}"],[f"{tol_cov}%/{tol_conf}% Tol. Int. Upper", f"{s['tol_upper']:.3f}"],[f"{mean_ci_conf}% LCI for Mean", f"{s['ci_lower']:.3f}"],[f"{mean_ci_conf}% UCI for Mean", f"{s['ci_upper']:.3f}"]]
+        axr.text(0.65, 0.98, s["label"], ha="center", va="top", fontsize=12, weight="bold")
+        for label, val in rows:
+            axr.text(0.02, y, label, ha="left", va="center", fontsize=10.5, weight="bold"); axr.text(0.84, y, val, ha="right", va="center", fontsize=10.5); y -= 0.06
+    else:
+        s1, s2 = stats_list[:2]
+        axr.text(x1, 0.98, s1["label"], ha="center", va="top", fontsize=12, weight="bold"); axr.text(x2, 0.98, s2["label"], ha="center", va="top", fontsize=12, weight="bold")
+        rows = [["Normality (AD), p-value", f"{s1['ad_p']:.3f}" if pd.notna(s1['ad_p']) else "-", f"{s2['ad_p']:.3f}" if pd.notna(s2['ad_p']) else "-"],["Mean", f"{s1['mean']:.3f}", f"{s2['mean']:.3f}"],["SD", f"{s1['sd']:.3f}", f"{s2['sd']:.3f}"],["N", f"{s1['n']:.0f}", f"{s2['n']:.0f}"],["Variance", f"{s1['var']:.3f}", f"{s2['var']:.3f}"],["Minimum", f"{s1['min']:.3f}", f"{s2['min']:.3f}"],["1st Quartile", f"{s1['q1']:.3f}", f"{s2['q1']:.3f}"],["Median", f"{s1['median']:.3f}", f"{s2['median']:.3f}"],["3rd Quartile", f"{s1['q3']:.3f}", f"{s2['q3']:.3f}"],["Maximum", f"{s1['max']:.3f}", f"{s2['max']:.3f}"],[f"{tol_cov}%/{tol_conf}% Tol. Int. Lower", f"{s1['tol_lower']:.3f}", f"{s2['tol_lower']:.3f}"],[f"{tol_cov}%/{tol_conf}% Tol. Int. Upper", f"{s1['tol_upper']:.3f}", f"{s2['tol_upper']:.3f}"],[f"{mean_ci_conf}% LCI for Mean", f"{s1['ci_lower']:.3f}", f"{s2['ci_lower']:.3f}"],[f"{mean_ci_conf}% UCI for Mean", f"{s1['ci_upper']:.3f}", f"{s2['ci_upper']:.3f}"]]
+        for label, v1, v2 in rows:
+            axr.text(x0, y, label, ha="left", va="center", fontsize=10.5, weight="bold"); axr.text(x1, y, v1, ha="center", va="center", fontsize=10.5); axr.text(x2, y, v2, ha="center", va="center", fontsize=10.5); y -= 0.06
     fig.tight_layout()
     return fig
 
@@ -545,7 +525,7 @@ def render():
                         ref_col = st.selectbox("Reference column", numeric_cols, index=0)
                     with csel2:
                         other_options = [c for c in numeric_cols if c != ref_col]
-                        default_others = other_options
+                        default_others = other_options[: min(1, len(other_options))]
                         compare_cols = st.multiselect("Additional sample columns to include", other_options, default=default_others)
                     selected_cols = [ref_col] + [c for c in compare_cols if c != ref_col]
                     numeric_series = {col: to_numeric(df[col]) for col in selected_cols}
@@ -656,11 +636,12 @@ def render():
                         colors = [PRIMARY_COLOR, SECONDARY_COLOR, TERTIARY_COLOR, "#9467bd", "#8c564b", "#e377c2", "#17becf", "#bcbd22"]
 
                         figure_map = {}
-                        info_box("This graphical summary combines distribution shape, spread, quartiles, tolerance interval, and confidence interval for the selected sample set in one comparison view.")
-                        fig_summary = _graphical_summary_figure(stats_objs, "Graphical Summary", tol_cov, tol_conf, mean_ci_conf)
-                        show_figure(fig_summary, "Graphical summary")
-                        figure_map["Graphical Summary"] = fig_to_png_bytes(fig_summary)
-                        plt.close(fig_summary)
+                        if is_single:
+                            info_box("This graphical summary combines density shape, spread, quartiles, tolerance interval, and confidence interval for the selected sample.")
+                            fig_summary = _graphical_summary_figure(stats_objs, f"Graphical Summary: {ref_col}", tol_cov, tol_conf, mean_ci_conf)
+                            show_figure(fig_summary, "Graphical summary")
+                            figure_map["Graphical Summary"] = fig_to_png_bytes(fig_summary)
+                            plt.close(fig_summary)
 
                         info_box("This comparison plot shows the sample mean together with its confidence interval and tolerance interval for every selected sample.")
                         fig_interval, ax = plt.subplots(figsize=(FIG_W, FIG_H))

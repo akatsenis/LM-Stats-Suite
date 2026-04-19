@@ -115,23 +115,6 @@ MODEL_SPECS = {
 }
 
 
-MODEL_CHOICE_OPTIONS = ["All Weibull models (assess best by AIC)"] + list(MODEL_SPECS.keys())
-
-
-def _resolve_model_choices(choice=None):
-    if choice is None or str(choice).startswith("All Weibull models"):
-        return list(MODEL_SPECS.keys())
-    if choice not in MODEL_SPECS:
-        raise ValueError("Unknown Weibull model selection.")
-    return [choice]
-
-
-def _progress_update(callback, step, total, message):
-    if callback is not None:
-        callback(step, total, message)
-
-
-
 def _default_bounds_and_start(model_name, t_h, y):
     t_h = np.asarray(t_h, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -532,13 +515,11 @@ def _single_profile_detail_rows(model_name, fit):
     return rows
 
 
-
-def fit_weibull_suite(df, time_unit_label, parameter_tables=None, model_choice=None, progress_callback=None):
+def fit_weibull_suite(df, time_unit_label, parameter_tables=None):
     factor = TIME_UNIT_TO_HOURS[time_unit_label]
     t_in = df["Time_input"].to_numpy(dtype=float)
     t_h = t_in * factor
     rep_cols = [c for c in df.columns if c != "Time_input"]
-    selected_models = _resolve_model_choices(model_choice)
     results = []
     per_rep_rows = []
     param_rows = []
@@ -548,18 +529,15 @@ def fit_weibull_suite(df, time_unit_label, parameter_tables=None, model_choice=N
     mean_profile["SD"] = df[rep_cols].std(axis=1, ddof=1, skipna=True)
     mean_profile["SE"] = mean_profile["SD"] / np.sqrt(max(len(rep_cols), 1))
     mean_models = {}
-    total_steps = max(1, len(selected_models) * (len(rep_cols) + 1))
-    step = 0
 
-    for model_name in selected_models:
+    for model_name in MODEL_SPECS:
         rep_fits = {}
         for rep in rep_cols:
-            step += 1
-            _progress_update(progress_callback, step, total_steps, f"Fitting {model_name} to dissolution profile '{rep}'")
             y = df[rep].to_numpy(dtype=float)
             fit = fit_weibull_model(t_h, y, model_name, parameter_tables=parameter_tables)
             rep_fits[rep] = fit
-            per_rep_rows.append({"Model": model_name, "Replicate": rep, "AIC": fit["aic"], "BIC": fit["bic"], "RSS": fit["rss"], "R²": fit["r2"], "Adjusted R²": fit["adj_r2"]})
+            row = {"Model": model_name, "Replicate": rep, "AIC": fit["aic"], "BIC": fit["bic"], "RSS": fit["rss"], "R²": fit["r2"], "Adjusted R²": fit["adj_r2"]}
+            per_rep_rows.append(row)
             if len(rep_cols) == 1:
                 single_detail_rows.extend(_single_profile_detail_rows(model_name, fit))
         param_mat = np.vstack([rep_fits[r]["params"] for r in rep_cols])
@@ -567,14 +545,27 @@ def fit_weibull_suite(df, time_unit_label, parameter_tables=None, model_choice=N
         if param_mat.shape[0] > 1:
             means = np.nanmean(param_mat, axis=0)
             ses = np.nanstd(param_mat, axis=0, ddof=1) / np.sqrt(param_mat.shape[0])
+            fit_for_summary = {"params": means, "se": ses}
             for idx, (pname, dname) in enumerate(zip(spec["param_names"], spec["display_names"])):
-                param_rows.append({"Model": model_name, "Parameter": dname, "Parameter key": pname, "Mean estimate": means[idx], "SE across replicates": ses[idx], "Profiles summarized": param_mat.shape[0]})
+                param_rows.append({
+                    "Model": model_name,
+                    "Parameter": dname,
+                    "Parameter key": pname,
+                    "Mean estimate": means[idx],
+                    "SE across replicates": ses[idx],
+                    "Profiles summarized": param_mat.shape[0],
+                })
         else:
             one_fit = rep_fits[rep_cols[0]]
             for idx, (pname, dname) in enumerate(zip(spec["param_names"], spec["display_names"])):
-                param_rows.append({"Model": model_name, "Parameter": dname, "Parameter key": pname, "Mean estimate": one_fit["params"][idx], "SE across replicates": one_fit["se"][idx], "Profiles summarized": 1})
-        step += 1
-        _progress_update(progress_callback, step, total_steps, f"Fitting {model_name} to the mean dissolution profile")
+                param_rows.append({
+                    "Model": model_name,
+                    "Parameter": dname,
+                    "Parameter key": pname,
+                    "Mean estimate": one_fit["params"][idx],
+                    "SE across replicates": one_fit["se"][idx],
+                    "Profiles summarized": 1,
+                })
         mean_fit = fit_weibull_model(t_h, mean_profile["Mean"].to_numpy(dtype=float), model_name, parameter_tables=parameter_tables)
         mean_models[model_name] = mean_fit
         results.append({
@@ -616,9 +607,7 @@ def fit_weibull_suite(df, time_unit_label, parameter_tables=None, model_choice=N
         "time_factor": factor,
         "replicate_cols": rep_cols,
         "input_df": df.copy(),
-        "model_names": selected_models,
     }
-
 
 
 def plot_weibull_profile_fits(df, fit_pack, time_unit_label):
@@ -630,7 +619,7 @@ def plot_weibull_profile_fits(df, fit_pack, time_unit_label):
         ax.plot(time_col, df[rep].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
     mean_df = fit_pack["mean_profile_df"]
     ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean")
-    for model_name in fit_pack.get("model_names", list(MODEL_SPECS.keys())):
+    for model_name in MODEL_SPECS:
         sub = fit_pack["curve_df"].loc[fit_pack["curve_df"]["Model"] == model_name]
         lw = cfg["line_width"] + (0.8 if model_name == fit_pack["best_model"] else 0.0)
         alpha = 0.95 if model_name == fit_pack["best_model"] else 0.7
@@ -1047,31 +1036,6 @@ def plot_deconvoluted_profile(pack):
     return fig
 
 
-
-def plot_pk_mean_profile_errorbars(pack, title="PK mean profile with error bars"):
-    cfg = safe_get_plot_cfg("Dissolution comparison")
-    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
-    df = pack["pk_mean_profile_df"]
-    yerr = df["SE"].to_numpy(dtype=float)
-    yerr = np.where(np.isfinite(yerr), yerr, 0.0)
-    ax.errorbar(df["Time_input"], df["Mean Cp"], yerr=yerr, fmt="o-", capsize=3, color=cfg["primary_color"], linewidth=cfg["line_width"], label="Mean Cp ± SE")
-    apply_ax_style(ax, title, f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
-    return fig
-
-
-
-def plot_pk_individual_profiles(pack, title="Individual PK profiles"):
-    cfg = safe_get_plot_cfg("Dissolution comparison")
-    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
-    df = pack["input_df"]
-    t = df["Time_input"].to_numpy(dtype=float)
-    for col in pack["cp_cols"]:
-        ax.plot(t, df[col].to_numpy(dtype=float), marker="o", linewidth=max(0.9, cfg["aux_line_width"]), alpha=0.85, label=col)
-    apply_ax_style(ax, title, f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
-    return fig
-
-
-
 def save_invivofit_to_session(pack):
     best_model = pack["best_model"]
     best_fit = pack["best_fit"]
@@ -1217,9 +1181,6 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, use_paper_defaults=Tru
         "fit_stats_df": pd.DataFrame([{"AIC": best["aic"], "BIC": best["bic"], "RSS": best["rss"], "R²": best["r2"]}]),
         "param_df": pd.DataFrame(rows),
         "wn_df": pd.DataFrame({"Time_input": t_in, "Time_h": t_h, "Wagner-Nelson fraction": wn}),
-        "pk_individual_df": pk_tables["individual_df"],
-        "pk_mean_summary_df": pk_tables["mean_summary_df"],
-        "pk_mean_profile_df": pk_tables["mean_profile_df"],
         "fit": best,
         "saved_invitro_model": saved_invitro["model"],
     }
@@ -1566,157 +1527,65 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition):
     return best
 
 
-
-def _linear_auc(x, y):
-    x = np.asarray(x, dtype=float)
-    y = np.asarray(y, dtype=float)
-    if len(x) < 2:
-        return np.nan
-    return float(np.sum((y[:-1] + y[1:]) * np.diff(x) / 2.0))
-
-
-
-def _estimate_lambda_z(t_h, cp):
-    t_h = np.asarray(t_h, dtype=float)
-    cp = np.asarray(cp, dtype=float)
-    mask = np.isfinite(t_h) & np.isfinite(cp) & (cp > 0)
-    t = t_h[mask]
-    c = cp[mask]
-    if len(t) < 3:
-        return np.nan, np.nan, np.nan, np.nan
-    best = None
-    max_tail = min(len(t), 6)
-    for m in range(3, max_tail + 1):
-        tt = t[-m:]
-        yy = np.log(c[-m:])
-        slope, intercept, r_value, p_value, stderr = stats.linregress(tt, yy)
-        if not np.isfinite(slope) or slope >= 0:
-            continue
-        r2 = float(r_value ** 2)
-        adj_r2 = 1.0 - (1.0 - r2) * (m - 1) / max(m - 2, 1)
-        cand = (adj_r2, -slope, m, r2)
-        if best is None or cand[0] > best[0]:
-            best = cand
-    if best is None:
-        return np.nan, np.nan, np.nan, np.nan
-    return float(best[1]), float(best[0]), int(best[2]), float(best[3])
-
-
-
-def _pk_nca_one_profile(time_input, time_h, cp, label, time_unit_label, cp_unit):
-    arr_tin = np.asarray(time_input, dtype=float)
-    arr_th = np.asarray(time_h, dtype=float)
-    arr_cp = np.asarray(cp, dtype=float)
-    mask = np.isfinite(arr_tin) & np.isfinite(arr_th) & np.isfinite(arr_cp)
-    arr_tin = arr_tin[mask]
-    arr_th = arr_th[mask]
-    arr_cp = np.clip(arr_cp[mask], 0.0, None)
-    order = np.argsort(arr_th)
-    arr_tin = arr_tin[order]
-    arr_th = arr_th[order]
-    arr_cp = arr_cp[order]
-    row = {"Profile": label}
-    if len(arr_th) == 0:
-        return row
-    row["N timepoints"] = int(len(arr_th))
-    row[f"Cmax ({cp_unit})"] = float(np.nanmax(arr_cp))
-    tmax_idx = int(np.nanargmax(arr_cp))
-    row[f"Tmax ({time_unit_label})"] = float(arr_tin[tmax_idx])
-    row["Tmax (h)"] = float(arr_th[tmax_idx])
-    row[f"AUCt ({cp_unit}·h)"] = _linear_auc(arr_th, arr_cp)
-    lam_z, adj_r2, n_pts, r2 = _estimate_lambda_z(arr_th, arr_cp)
-    row["λz (1/h)"] = lam_z
-    row["λz adjusted R²"] = adj_r2
-    row["λz points used"] = n_pts
-    row["Clast"] = float(arr_cp[-1])
-    row["Tlast (h)"] = float(arr_th[-1])
-    if np.isfinite(lam_z) and lam_z > 0:
-        row[f"AUCinf ({cp_unit}·h)"] = row[f"AUCt ({cp_unit}·h)"] + float(arr_cp[-1] / lam_z)
-        row["AUC extrapolated (%)"] = float(100.0 * (arr_cp[-1] / lam_z) / max(row[f"AUCinf ({cp_unit}·h)"], 1e-12))
-    else:
-        row[f"AUCinf ({cp_unit}·h)"] = np.nan
-        row["AUC extrapolated (%)"] = np.nan
-    for i in range(len(arr_th) - 1):
-        lab = f"pAUC {arr_tin[i]:g}-{arr_tin[i+1]:g} {time_unit_label} ({cp_unit}·h)"
-        row[lab] = float((arr_cp[i] + arr_cp[i + 1]) * (arr_th[i + 1] - arr_th[i]) / 2.0)
-    return row
-
-
-
-def build_pk_study_tables(pk_df, time_unit_label, cp_unit):
-    t_in = pk_df["Time_input"].to_numpy(dtype=float)
-    t_h = t_in * TIME_UNIT_TO_HOURS[time_unit_label]
-    cp_cols = [c for c in pk_df.columns if c != "Time_input"]
-    indiv_rows = []
-    for col in cp_cols:
-        indiv_rows.append(_pk_nca_one_profile(t_in, t_h, pk_df[col].to_numpy(dtype=float), col, time_unit_label, cp_unit))
-    individual_df = pd.DataFrame(indiv_rows)
-    numeric_cols = [c for c in individual_df.columns if c != "Profile"]
-    if individual_df.empty:
-        mean_summary_df = pd.DataFrame()
-    else:
-        mean_row = {"Statistic": "Mean across profiles", "Profiles summarized": len(individual_df)}
-        se_row = {"Statistic": "SE across profiles", "Profiles summarized": len(individual_df)}
-        for col in numeric_cols:
-            vals = pd.to_numeric(individual_df[col], errors="coerce")
-            mean_row[col] = float(np.nanmean(vals)) if np.isfinite(vals).any() else np.nan
-            se_row[col] = float(np.nanstd(vals, ddof=1) / np.sqrt(np.sum(np.isfinite(vals)))) if np.sum(np.isfinite(vals)) > 1 else np.nan
-        mean_summary_df = pd.DataFrame([mean_row, se_row])
-    mean_profile_df = pd.DataFrame({"Time_input": t_in, "Time_h": t_h})
-    cp_frame = pk_df[cp_cols].apply(pd.to_numeric, errors="coerce")
-    mean_profile_df["N"] = cp_frame.notna().sum(axis=1)
-    mean_profile_df["Mean Cp"] = cp_frame.mean(axis=1, skipna=True)
-    mean_profile_df["SD"] = cp_frame.std(axis=1, ddof=1, skipna=True)
-    mean_profile_df["SE"] = mean_profile_df["SD"] / np.sqrt(mean_profile_df["N"].clip(lower=1))
-    return {"individual_df": individual_df, "mean_summary_df": mean_summary_df, "mean_profile_df": mean_profile_df}
-
-
-
-def fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, model_choice=None, progress_callback=None):
+def fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition):
     factor = TIME_UNIT_TO_HOURS[time_unit_label]
     t_in = pk_df["Time_input"].to_numpy(dtype=float)
     t_h = t_in * factor
     cp_cols = [c for c in pk_df.columns if c != "Time_input"]
     mean_cp = pk_df[cp_cols].mean(axis=1, skipna=True).to_numpy(dtype=float)
-    selected_models = _resolve_model_choices(model_choice)
     results = []
     fits = {}
-    total_steps = max(1, len(selected_models) + 2)
-    step = 0
-    _progress_update(progress_callback, step, total_steps, "Preparing PK study summaries")
-    pk_tables = build_pk_study_tables(pk_df, time_unit_label, disposition["cp_unit"])
-    for model_name in selected_models:
-        step += 1
-        _progress_update(progress_callback, step, total_steps, f"Fitting {model_name} to the mean PK profile")
+    for model_name in MODEL_SPECS:
         fit = fit_pk_deconvolution_model(t_h, mean_cp, model_name, disposition)
         fits[model_name] = fit
         results.append({"Model": model_name, "AIC": fit["aic"], "BIC": fit["bic"], "RSS": fit["rss"], "R²": fit["r2"]})
     summary_df = pd.DataFrame(results).sort_values("AIC").reset_index(drop=True)
     best_model = summary_df.iloc[0]["Model"]
     best_fit = fits[best_model]
-    step += 1
-    _progress_update(progress_callback, step, total_steps, f"Summarizing best PK deconvolution model ({best_model})")
     if disposition["compartments"] == 1:
         wn = wagner_nelson_fraction(t_h, mean_cp, disposition["k10"])
     else:
         wn = np.full_like(t_h, np.nan, dtype=float)
     detail_rows = []
     for idx, pname in enumerate(best_fit["display_names"]):
-        detail_rows.append({"Parameter": pname, "Estimate": best_fit["params"][idx], "S.E.": best_fit["se"][idx], "R.S.E (%)": best_fit["rse_pct"][idx], "t-Value": best_fit["t_value"][idx], "p-Value": best_fit["p_value"][idx], "95% LCL": best_fit["lcl"][idx], "95% UCL": best_fit["ucl"][idx]})
+        detail_rows.append({
+            "Parameter": pname,
+            "Estimate": best_fit["params"][idx],
+            "S.E.": best_fit["se"][idx],
+            "R.S.E (%)": best_fit["rse_pct"][idx],
+            "t-Value": best_fit["t_value"][idx],
+            "p-Value": best_fit["p_value"][idx],
+            "95% LCL": best_fit["lcl"][idx],
+            "95% UCL": best_fit["ucl"][idx],
+        })
     disp_df = pd.DataFrame([{
-        "Compartments": disposition["compartments"], "Dose": disposition["dose_value"], "Dose units": disposition["dose_unit"], "V": disposition["V_value"], "V units": disposition["V_unit"], "Cp units": disposition["cp_unit"], "BIO": disposition["bio"],
-        "k10": disposition["k10"], "k12": disposition.get("k12", 0.0), "k21": disposition.get("k21", 0.0), "k13": disposition.get("k13", 0.0), "k31": disposition.get("k31", 0.0),
+        "Compartments": disposition["compartments"],
+        "Dose": disposition["dose_value"],
+        "Dose units": disposition["dose_unit"],
+        "V": disposition["V_value"],
+        "V units": disposition["V_unit"],
+        "Cp units": disposition["cp_unit"],
+        "BIO": disposition["bio"],
+        "k10": disposition["k10"],
+        "k12": disposition.get("k12", 0.0),
+        "k21": disposition.get("k21", 0.0),
+        "k13": disposition.get("k13", 0.0),
+        "k31": disposition.get("k31", 0.0),
     }])
     return {
-        "input_df": pk_df.copy(), "time_factor": factor, "time_unit_label": time_unit_label, "cp_cols": cp_cols,
+        "input_df": pk_df.copy(),
+        "time_factor": factor,
+        "time_unit_label": time_unit_label,
+        "cp_cols": cp_cols,
         "mean_pk_df": pd.DataFrame({"Time_input": t_in, "Time_h": t_h, "Mean Cp": mean_cp}),
-        "summary_df": summary_df, "best_model": best_model, "best_fit": best_fit, "parameter_df": pd.DataFrame(detail_rows),
+        "summary_df": summary_df,
+        "best_model": best_model,
+        "best_fit": best_fit,
+        "parameter_df": pd.DataFrame(detail_rows),
         "wn_df": pd.DataFrame({"Time_input": t_in, "Time_h": t_h, "Wagner-Nelson fraction": wn}),
-        "disposition": disposition, "disposition_df": disp_df,
-        "pk_individual_df": pk_tables["individual_df"], "pk_mean_summary_df": pk_tables["mean_summary_df"], "pk_mean_profile_df": pk_tables["mean_profile_df"],
-        "model_names": selected_models,
+        "disposition": disposition,
+        "disposition_df": disp_df,
     }
-
 
 
 def plot_deconvolution_pk_fit(pack):
@@ -1745,31 +1614,6 @@ def plot_deconvoluted_profile(pack):
     title = f"Recovered in vivo release profile ({pack['best_model']})"
     apply_ax_style(ax, title, f"Time ({pack['time_unit_label']})", "% released / absorbed", legend=True, plot_key="Dissolution comparison")
     return fig
-
-
-
-def plot_pk_mean_profile_errorbars(pack, title="PK mean profile with error bars"):
-    cfg = safe_get_plot_cfg("Dissolution comparison")
-    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
-    df = pack["pk_mean_profile_df"]
-    yerr = df["SE"].to_numpy(dtype=float)
-    yerr = np.where(np.isfinite(yerr), yerr, 0.0)
-    ax.errorbar(df["Time_input"], df["Mean Cp"], yerr=yerr, fmt="o-", capsize=3, color=cfg["primary_color"], linewidth=cfg["line_width"], label="Mean Cp ± SE")
-    apply_ax_style(ax, title, f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
-    return fig
-
-
-
-def plot_pk_individual_profiles(pack, title="Individual PK profiles"):
-    cfg = safe_get_plot_cfg("Dissolution comparison")
-    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
-    df = pack["input_df"]
-    t = df["Time_input"].to_numpy(dtype=float)
-    for col in pack["cp_cols"]:
-        ax.plot(t, df[col].to_numpy(dtype=float), marker="o", linewidth=max(0.9, cfg["aux_line_width"]), alpha=0.85, label=col)
-    apply_ax_style(ax, title, f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
-    return fig
-
 
 
 def save_invivofit_to_session(pack):
@@ -1891,7 +1735,6 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
         wn = wagner_nelson_fraction(t_h, mean_cp, disposition["k10"])
     else:
         wn = np.full_like(t_h, np.nan, dtype=float)
-    pk_tables = build_pk_study_tables(pk_df, time_unit_label, disposition["cp_unit"])
     return {
         "input_df": pk_df.copy(),
         "time_factor": factor,
@@ -2169,45 +2012,28 @@ def render():
             k13 = st.number_input("k13 (1/h)", min_value=0.0, value=0.050000, format="%.6f", key="deconv_k13", disabled=compartments < 3)
         with d10:
             k31 = st.number_input("k31 (1/h)", min_value=0.0, value=0.020000, format="%.6f", key="deconv_k31", disabled=compartments < 3)
-        model_choice = st.selectbox("Weibull model(s) to fit", MODEL_CHOICE_OPTIONS, index=0, key="deconv_model_choice")
-        st.caption("The best model is selected from the Weibull model(s) you choose here. KAB is computed as a finite-difference derivative of the Weibull release curve and the PK profile is generated with the paper-style compartment ODEs using the user-supplied microconstants, dose, and V. Fmax is the only amplitude parameter in the Weibull model, so choosing a single model can make the run substantially faster when the structure is already known.")
-
+        st.caption("The best model is selected from single, double, and triple Weibull cumulative release functions. KAB is computed as a finite-difference derivative of the Weibull release curve and the PK profile is generated with the paper-style compartment ODEs using the user-supplied microconstants, dose, and V. Fmax is the only amplitude parameter in the Weibull model.")
 
         if pk_text:
             try:
                 pk_df = parse_pk_profile_table(pk_text)
                 disposition = _build_disposition_config(compartments, dose_value, dose_unit, v_value, v_unit, cp_unit, k10, k12, k21, k13, k31, bio=1.0)
-                progress_holder = st.empty()
-                status_holder = st.empty()
-                progress_bar = progress_holder.progress(0)
-                def _cb(step, total, msg):
-                    progress_bar.progress(max(0.0, min(1.0, float(step) / max(float(total), 1.0))))
-                    status_holder.caption(msg)
-                pack = fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, model_choice=model_choice, progress_callback=_cb)
-                progress_bar.progress(1.0)
-                status_holder.caption(f"Finished PK deconvolution fit. Best model: {pack['best_model']}.")
+                pack = fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition)
                 fig_pk = plot_deconvolution_pk_fit(pack)
                 fig_deconv = plot_deconvoluted_profile(pack)
-                fig_mean_pk = plot_pk_mean_profile_errorbars(pack, title="PK mean profile with error bars")
-                fig_individual_pk = plot_pk_individual_profiles(pack, title="Individual PK profiles")
                 m1, m2, m3 = st.columns(3)
                 m1.metric("Best model", pack["best_model"])
                 m2.metric("Best AIC", f"{pack['summary_df'].iloc[0]['AIC']:.{decimals}f}")
                 m3.metric("Saved model key", "InVivoFit")
 
-                t1, t2 = st.tabs(["PK study", "Save model"])
+                t1, t2 = st.tabs(["Summary", "Save model"])
                 with t1:
                     inp = pk_df.copy()
                     inp.insert(1, "Time_h", pk_df["Time_input"] * pack["time_factor"])
                     report_table(inp, "Input PK data used in the convolution-through-ODE fit", decimals)
-                    report_table(pack["pk_individual_df"], "Individual-subject PK summary", decimals)
-                    report_table(pack["pk_mean_summary_df"], "Mean PK summary across profiles", decimals)
-                    report_table(pack["pk_mean_profile_df"], "PK mean profile with SD and SE", decimals)
                     report_table(pack["disposition_df"], "Disposition system used to generate the PK profile", decimals)
-                    report_table(pack["summary_df"], "AIC comparison for the selected Weibull release models", decimals)
+                    report_table(pack["summary_df"], "AIC comparison for single, double, and triple Weibull release models", decimals)
                     report_table(pack["parameter_df"], f"Parameter estimates for the best model ({pack['best_model']})", decimals)
-                    show_figure(fig_individual_pk, caption="Individual PK profiles")
-                    show_figure(fig_mean_pk, caption="PK mean profile with error bars")
                     show_figure(fig_pk, caption=f"Observed and fitted PK profile for the best model ({pack['best_model']})")
                     show_figure(fig_deconv, caption="Recovered in vivo release profile for the best model")
                 with t2:
@@ -2220,17 +2046,12 @@ def render():
 
                 table_map = {
                     "Input PK Data": pk_df.assign(Time_h=pk_df["Time_input"] * pack["time_factor"]),
-                    "Individual PK Summary": pack["pk_individual_df"],
-                    "Mean PK Summary": pack["pk_mean_summary_df"],
-                    "PK Mean Profile": pack["pk_mean_profile_df"],
                     "Disposition System": pack["disposition_df"],
                     "Model Comparison": pack["summary_df"],
                     f"Best Model Parameters ({pack['best_model']})": pack["parameter_df"],
                     "Recovered Release Reference": pack["wn_df"],
                 }
                 figure_map = {
-                    "Individual PK profiles": fig_to_png_bytes(fig_individual_pk),
-                    "PK mean profile with error bars": fig_to_png_bytes(fig_mean_pk),
                     f"Observed and fitted PK profile ({pack['best_model']})": fig_to_png_bytes(fig_pk),
                     "Recovered in vivo release profile": fig_to_png_bytes(fig_deconv),
                 }
@@ -2248,6 +2069,7 @@ def render():
                 )
             except Exception as e:
                 st.error(str(e))
+
     elif tool == "🔗 IVIVC":
         app_header("🔗 IVIVC", "Apply the paper/code IVIVC time-scaling workflow to a saved InVitroFit model, generate KAB by finite difference, and predict PK with the compartment ODE system using user-supplied microconstants, dose, and V.")
         if "InVitroFit" not in st.session_state:
@@ -2299,7 +2121,6 @@ def render():
                 fixed_bio = st.number_input("Fixed BIO", min_value=0.000001, value=1.000000, format="%.6f", key="ivivc_fixed_bio", disabled=fit_bio)
             st.caption("The saved in vitro Weibull model is transformed through the paper-style time-scaling function t'' = B1 + B2·t^B3. The transformed cumulative release is then converted to KAB by finite difference and the PK profile is generated with the compartment ODE system using the user-supplied microconstants, dose, and V.")
 
-
             if pk_text:
                 try:
                     pk_df = parse_pk_profile_table(pk_text)
@@ -2307,27 +2128,20 @@ def render():
                     pack = fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio)
                     fig_pk = plot_ivivc_pk_fit(pack)
                     fig_rel = plot_ivivc_deconv(pack)
-                    fig_mean_pk = plot_pk_mean_profile_errorbars(pack, title="PK mean profile with error bars")
-                    fig_individual_pk = plot_pk_individual_profiles(pack, title="Individual PK profiles")
                     fit_stats = pack["fit_stats_df"].iloc[0]
                     m1, m2, m3 = st.columns(3)
                     m1.metric("InVitroFit model", pack["saved_invitro_model"])
                     m2.metric("IVIVC AIC", f"{fit_stats['AIC']:.{decimals}f}")
                     m3.metric("IVIVC R²", f"{fit_stats['R²']:.{decimals}f}")
 
-                    t1, t2 = st.tabs(["PK study", "Save model"])
+                    t1, t2 = st.tabs(["Summary", "Save model"])
                     with t1:
                         inp = pk_df.copy()
                         inp.insert(1, "Time_h", pk_df["Time_input"] * pack["time_factor"])
                         report_table(inp, "Input PK data used in the IVIVC fit", decimals)
-                        report_table(pack["pk_individual_df"], "Individual-subject PK summary", decimals)
-                        report_table(pack["pk_mean_summary_df"], "Mean PK summary across profiles", decimals)
-                        report_table(pack["pk_mean_profile_df"], "PK mean profile with SD and SE", decimals)
                         report_table(pack["disposition_df"], "Disposition system used in the IVIVC ODE fit", decimals)
                         report_table(pack["fit_stats_df"], "IVIVC fit statistics", decimals)
                         report_table(pack["param_df"], "Estimated IVIVC parameters", decimals)
-                        show_figure(fig_individual_pk, caption="Individual PK profiles")
-                        show_figure(fig_mean_pk, caption="PK mean profile with error bars")
                         show_figure(fig_pk, caption="Observed PK profile and IVIVC-fitted PK profile")
                         show_figure(fig_rel, caption="Recovered in vivo release and transformed in vitro release from the IVIVC fit")
                     with t2:
@@ -2340,17 +2154,12 @@ def render():
 
                     table_map = {
                         "Input PK Data": pk_df.assign(Time_h=pk_df["Time_input"] * pack["time_factor"]),
-                        "Individual PK Summary": pack["pk_individual_df"],
-                        "Mean PK Summary": pack["pk_mean_summary_df"],
-                        "PK Mean Profile": pack["pk_mean_profile_df"],
                         "Disposition System": pack["disposition_df"],
                         "IVIVC Fit Statistics": pack["fit_stats_df"],
                         "Estimated IVIVC Parameters": pack["param_df"],
                         "Recovered Release Reference": pack["wn_df"],
                     }
                     figure_map = {
-                        "Individual PK profiles": fig_to_png_bytes(fig_individual_pk),
-                        "PK mean profile with error bars": fig_to_png_bytes(fig_mean_pk),
                         "Observed and IVIVC-fitted PK profile": fig_to_png_bytes(fig_pk),
                         "Recovered in vivo release and IVIVC fit": fig_to_png_bytes(fig_rel),
                     }
@@ -2368,6 +2177,7 @@ def render():
                     )
                 except Exception as e:
                     st.error(str(e))
+
     elif tool == "📈 In Vitro Weibull Fit":
         app_header("📈 In Vitro Weibull Fit", "Fit single, double, and triple Weibull models to one or more dissolution profiles, compare AIC values, and save the best model for reuse in the current session as InVitroFit.")
         c1, c2 = st.columns([1, 6])
@@ -2375,13 +2185,11 @@ def render():
             st.button("Sample Data", key="sample_weibull_ivivc", on_click=load_weibull_sample_text, args=("weibull_input_ivivc",))
         with c2:
             fit_text = st.text_area("Dissolution table (first column = time, remaining columns = one or more profiles / replicates)", height=260, key="weibull_input_ivivc")
-        u1, u2, u3 = st.columns([1, 1, 1.4])
+        u1, u2 = st.columns([1, 1])
         with u1:
             time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=0)
         with u2:
             decimals = st.slider("Decimals", 1, 8, 3, key="weibull_dec_ivivc")
-        with u3:
-            model_choice = st.selectbox("Weibull model(s) to fit", MODEL_CHOICE_OPTIONS, index=0, key="weibull_fit_model_choice")
         st.caption("The selected input time unit is converted internally so all fitting, stored parameters, and reports are in hours. Fmax is constrained to a maximum of 100, and the Triple Weibull fit enforces f1 + f2 ≤ 1 so the implied third fraction remains valid.")
 
         if fit_text:
@@ -2405,15 +2213,7 @@ def render():
                         )
                         parameter_tables[model_name] = _parameter_wide_to_long(model_name, pd.DataFrame(editor))
 
-                progress_holder = st.empty()
-                status_holder = st.empty()
-                progress_bar = progress_holder.progress(0)
-                def _cb(step, total, msg):
-                    progress_bar.progress(max(0.0, min(1.0, float(step) / max(float(total), 1.0))))
-                    status_holder.caption(msg)
-                fit_pack = fit_weibull_suite(fit_df, time_unit_label, parameter_tables=parameter_tables, model_choice=model_choice, progress_callback=_cb)
-                progress_bar.progress(1.0)
-                status_holder.caption(f"Finished Weibull fitting. Best model: {fit_pack['best_model']}.")
+                fit_pack = fit_weibull_suite(fit_df, time_unit_label, parameter_tables=parameter_tables)
                 summary_df = fit_pack["summary_df"]
                 per_rep_df = fit_pack["per_rep_df"]
                 param_df = fit_pack["param_df"]
