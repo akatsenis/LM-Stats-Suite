@@ -830,8 +830,8 @@ def render():
     tool = st.sidebar.radio("Stats tool", TOOLS, key="stats_tool")
     st.sidebar.caption("Use the app navigation to switch between Stats Suite, IVIVC Suite, and DoE Studio.")
 
-    if tool == "📊 Descriptive Statistics & Intervals":
-        app_header("📊 Descriptive Statistics & Intervals", "Summarize one or many numeric samples, calculate confidence and tolerance intervals, and compare selected samples against a reference.")
+    if tool == "📊 Descriptive Statistics":
+        app_header("📊 Descriptive Statistics", "Summarize one or many numeric samples, calculate confidence and tolerance intervals, and compare selected samples against a reference.")
         c1, c2 = st.columns([1, 5])
         with c1:
             st.button("Sample Data", key="sample_desc", on_click=load_sample_text, args=("desc_input", "desc"))
@@ -1124,7 +1124,7 @@ def render():
                         export_results(
                             prefix="descriptive_statistics_intervals",
                             report_title="Statistical Analysis Report",
-                            module_name="Descriptive Statistics & Intervals",
+                            module_name="Descriptive Statistics",
                             statistical_analysis="Descriptive statistics, mean confidence intervals, normal-theory tolerance intervals, normality checks, equal-variance checks, and reference-based comparisons were calculated for the selected samples. When multiple samples were included, ANOVA was also performed, and optional paired tests were added when requested.",
                             offer_text="This module summarizes one or many populations and supports interval estimation, ANOVA, variance checks, and reference-based comparison in a single workflow.",
                             python_tools="pandas, numpy, scipy.stats, statsmodels, matplotlib, openpyxl, reportlab",
