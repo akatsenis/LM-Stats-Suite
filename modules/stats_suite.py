@@ -21,10 +21,7 @@ TOOLS = [
     '📊 Descriptive Statistics & Intervals',
     '📈 Regression Analysis',
     '⏳ Shelf Life Estimator',
-    '💊 Dissolution Comparison (f2)',
-    '⚖️ Two-Sample Tests',
     '📐 Two-Way ANOVA / GLM',
-    '🎯 Tolerance & Confidence Intervals',
     '🌐 PCA Analysis',
 ]
 
