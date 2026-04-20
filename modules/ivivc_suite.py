@@ -761,6 +761,24 @@ DECONV_SAMPLE_STARTS = {
 
 
 
+def _deconv_editor_state_key(model_name):
+    return f"_deconv_editor_state_{_slugify(model_name)}"
+
+
+def _default_deconv_editor_table(model_name):
+    if model_name in DECONV_SAMPLE_STARTS:
+        return pd.DataFrame(DECONV_SAMPLE_STARTS[model_name]).copy()
+    fallback = build_deconv_parameter_tables(np.asarray([0.0, 1.0]), np.asarray([0.0, 1.0]))
+    return fallback[model_name].copy()
+
+
+def _reset_deconv_editor_state(force=False):
+    for model_name in MODEL_SPECS:
+        key = _deconv_editor_state_key(model_name)
+        if force or key not in st.session_state:
+            st.session_state[key] = _default_deconv_editor_table(model_name)
+
+
 def load_pk_sample_text(state_key):
     st.session_state[state_key] = PK_SYNTHETIC_SAMPLE
 
