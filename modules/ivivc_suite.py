@@ -2170,7 +2170,7 @@ def render():
             k13 = st.number_input("k13 (1/h)", min_value=0.0, value=1.000000, format="%.6f", key="deconv_k13", disabled=compartments < 3)
         with d10:
             k31 = st.number_input("k31 (1/h)", min_value=0.0, value=0.000000, format="%.6f", key="deconv_k31", disabled=compartments < 3)
-        model_choice = st.selectbox("Weibull model(s) to fit", MODEL_CHOICE_OPTIONS, index=0, key="deconv_model_choice")
+        model_choice = st.selectbox("Weibull model(s) to fit", MODEL_CHOICE_OPTIONS, index=3, key="deconv_model_choice")
         st.caption("The best model is selected from the Weibull model(s) you choose here. KAB is computed as a finite-difference derivative of the Weibull release curve and the PK profile is generated with the paper-style compartment ODEs using the user-supplied microconstants, dose, and V. Fmax is the only amplitude parameter in the Weibull model, so choosing a single model can make the run substantially faster when the structure is already known.")
 
 
