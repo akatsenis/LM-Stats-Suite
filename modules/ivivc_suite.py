@@ -11,199 +11,184 @@ pd = common.pd
 np = common.np
 plt = common.plt
 
+# --- SAMPLE DATA (Hardcoded for quick test) ---
+DEFAULT_PK_DATA = """0\t0\t0\t0
+1\t8.94\t18.2\t14.1
+6\t12.6\t18.2\t16.1
+12\t9.08\t14.4\t11.4
+24\t11.7\t14.7\t12
+48\t7.86\t12.9\t9.81
+96\t10.4\t18.3\t14.5
+168\t11.8\t21\t15.3
+264\t8.77\t12.3\t10.9
+360\t8.57\t6.26\t7.48
+456\t3.97\t1.45\t5.43
+552\t3.51\t0\t3.23
+648\t2.49\t0\t1.28
+744\t2.21\t0\t0.564
+840\t1.66\t0\t0"""
+
 # --- Constants ---
-TIME_UNIT_TO_HOURS = {"Minutes": 1 / 60.0, "Hours": 1.0, "Days": 24.0}
 DOSE_UNIT_TO_MG = {"ng": 1e-6, "ug": 1e-3, "mg": 1.0, "g": 1e3}
-VOLUME_UNIT_TO_L = {"uL": 1e-6, "mL": 1e-3, "L": 1.0}
+VOLUME_UNIT_TO_L = {"mL": 1e-3, "L": 1.0}
 
-# --- Data Parsing Helpers ---
-def _coerce_numeric_df(text):
-    df = pd.read_csv(StringIO(text.strip()), sep=r"[\t,; ]+", engine="python")
-    if df.shape[1] < 2:
-        raise ValueError("Please provide at least two columns: Time and Concentration.")
-    df = df.dropna(how="all")
-    for c in df.columns:
-        df[c] = pd.to_numeric(df[c], errors="coerce")
-    df = df.dropna(subset=[df.columns[0]])
-    return df
-
-def parse_pk_profile_table(text):
-    df = _coerce_numeric_df(text)
-    time_col = df.columns[0]
-    cp_cols = [c for c in df.columns[1:] if df[c].notna().any()]
-    out = df[[time_col] + cp_cols].copy().rename(columns={time_col: "Time_input"})
-    out = out.sort_values("Time_input").reset_index(drop=True)
-    return out
-
-# --- Core Weibull Rate Functions (Exact Derivatives) ---
+# --- Core Math ---
 def _weibull_rate_unit(t, MDT, b):
     t_safe = np.maximum(t, 1e-12)
     MDT_s = np.maximum(MDT, 1e-12)
     b_s = np.maximum(b, 1e-12)
+    # The derivative of (1 - exp(-(t/MDT)^b))
     return (b_s / MDT_s) * np.power(t_safe / MDT_s, b_s - 1) * np.exp(-np.power(t_safe / MDT_s, b_s))
 
 def get_kab_rate(t, model_name, p):
-    # Fmax hard-clipped to 100.0 max
-    Fmax_f = np.minimum(p.get('Fmax', 100.0), 100.0) / 100.0
+    # Fmax is the total % absorbed (e.g. 72.9)
+    Fmax_f = np.clip(p.get('Fmax', 100.0), 0, 100) / 100.0
     
     if model_name == "Single Weibull":
         return Fmax_f * _weibull_rate_unit(t, p['MDT1'], p['b1'])
-    
     elif model_name == "Double Weibull":
-        f1 = np.clip(p.get('f1', 0.5), 0.0, 1.0)
-        return Fmax_f * (f1 * _weibull_rate_unit(t, p['MDT1'], p['b1']) + 
-                         (1.0 - f1) * _weibull_rate_unit(t, p['MDT2'], p['b2']))
-    
-    else: # Triple Weibull
-        f1 = np.clip(p.get('f1', 0.33), 0.0, 1.0)
-        f2 = np.clip(p.get('f2', 0.33), 0.0, 1.0)
-        # Ensure f1 + f2 <= 1.0, otherwise the remaining fraction f3 is physically impossible
+        f1 = np.clip(p.get('f1', 0.5), 0, 1)
+        return Fmax_f * (f1 * _weibull_rate_unit(t, p['MDT1'], p['b1']) + (1-f1) * _weibull_rate_unit(t, p['MDT2'], p['b2']))
+    else: # Triple
+        f1, f2 = np.clip(p.get('f1', 0.3), 0, 1), np.clip(p.get('f2', 0.3), 0, 1)
         if (f1 + f2) > 1.0:
-            total = f1 + f2
-            f1 /= total
-            f2 /= total
+            s = f1 + f2
+            f1 /= s; f2 /= s
         f3 = 1.0 - f1 - f2
         return Fmax_f * (f1 * _weibull_rate_unit(t, p['MDT1'], p['b1']) + 
                          f2 * _weibull_rate_unit(t, p['MDT2'], p['b2']) +
                          f3 * _weibull_rate_unit(t, p['MDT3'], p['b3']))
 
-# --- ODE System ---
 def pk_ode_rhs(t, y, model_name, p_dict, disp):
     kab = get_kab_rate(t, model_name, p_dict)
-    input_mass = disp['dose_mg'] * disp['bio'] * kab
+    # Input is Dose * Fraction_Rate_Per_Hour
+    input_mass = disp['dose_mg'] * kab 
     A1 = y[0]
     da1 = input_mass - disp['k10'] * A1
     
     if disp['compartments'] == 1:
         return [da1]
+    
+    A2 = y[1]
+    da1 += disp['k21'] * A2 - disp['k12'] * A1
+    da2 = disp['k12'] * A1 - disp['k21'] * A2
+    
     if disp['compartments'] == 2:
-        A2 = y[1]
-        da1 += disp['k21'] * A2 - disp['k12'] * A1
-        da2 = disp['k12'] * A1 - disp['k21'] * A2
         return [da1, da2]
-    if disp['compartments'] == 3:
-        A2, A3 = y[1], y[2]
-        da1 += disp['k21'] * A2 + disp['k31'] * A3 - (disp['k12'] + disp['k13']) * A1
-        da2 = disp['k12'] * A1 - disp['k21'] * A2
-        da3 = disp['k13'] * A1 - disp['k31'] * A3
-        return [da1, da2, da3]
+    
+    A3 = y[2]
+    da1 += disp['k31'] * A3 - disp['k13'] * A1
+    da3 = disp['k13'] * A1 - disp['k31'] * A3
+    return [da1, da2, da3]
 
-# --- UI & Streamlit Render ---
 def render():
     render_display_settings()
-    st.sidebar.title("💊 lm Stats")
-    tool = st.sidebar.radio("Tool", ["🧬 Deconvolution through convolution", "🔗 IVIVC"])
+    st.header("🧬 Deconvolution through Convolution")
 
-    if tool == "🧬 Deconvolution through convolution":
-        app_header("🧬 Deconvolution through convolution", "Analytical ODE Fitting with physical constraints.")
+    # 1. DISPOSITION (Compact)
+    with st.expander("1. Disposition Settings", expanded=True):
+        c1, c2, c3, c4 = st.columns(4)
+        comps = c1.selectbox("Compartments", [1, 2, 3], index=1)
+        # Your Image Values
+        dose_val = c2.number_input("Dose", value=6666666.6)
+        dose_u = c3.selectbox("Dose Units", ["ng", "mg"], index=0)
+        v_val = c4.number_input("V", value=1136.9)
         
-        # 1. Compact Disposition Inputs
-        with st.expander("1. Disposition & Dose (Compact)", expanded=True):
-            r1c1, r1c2, r1c3, r1c4 = st.columns(4)
-            comps = r1c1.selectbox("Compartments", [1, 2, 3], index=1)
-            dose_val = r1c2.number_input("Dose", value=6666666.6)
-            dose_u = r1c3.selectbox("Dose units", list(DOSE_UNIT_TO_MG.keys()))
-            v_val = r1c4.number_input("V", value=1136.9)
+        c5, c6, c7, c8 = st.columns(4)
+        v_u = c5.selectbox("V Units", ["mL", "L"], index=0)
+        k10 = c6.number_input("k10 (1/h)", value=0.77, format="%.4f")
+        k12 = c7.number_input("k12 (1/h)", value=1.38, format="%.4f")
+        k21 = c8.number_input("k21 (1/h)", value=1.81, format="%.4f")
+
+    # 2. PK DATA (Pre-filled with your table)
+    pk_text = st.text_area("2. PK Table (Time | Rep1 | Rep2...)", value=DEFAULT_PK_DATA, height=150)
+    
+    # 3. MODEL & PARAMS
+    model_choice = "Triple Weibull"
+    st.subheader("3. Weibull Parameters (Wide Table)")
+    
+    # Your Exact Values from image_ec10bf.png
+    # MDT1=7.48, b1=0.83, f1=0.04, MDT2=29.31, b2=6.75, f2=0.02, MDT3=265.68, b3=1.57, Fmax=72.90
+    param_names = ["MDT1", "b1", "f1", "MDT2", "b2", "f2", "MDT3", "b3", "Fmax"]
+    val_list = [7.48, 0.83, 0.04, 29.31, 6.75, 0.02, 265.68, 1.57, 72.90]
+    
+    df_params = pd.DataFrame({
+        "Parameter": param_names,
+        "Initial Value": val_list,
+        "Min": [0.1, 0.1, 0.0, 0.1, 0.1, 0.0, 0.1, 0.1, 0.0],
+        "Max": [1000.0, 20.0, 1.0, 1000.0, 20.0, 1.0, 2000.0, 20.0, 100.0],
+        "Fix": [False] * 9
+    })
+    
+    edited_df = st.data_editor(df_params.T, hide_index=False, use_container_width=True)
+    # Transpose back for logic
+    final_edit = edited_df.T 
+
+    if st.button("Run Deconvolution Fit"):
+        try:
+            # Parse Data
+            df = pd.read_csv(StringIO(pk_text), sep=r"\s+", header=None)
+            t_obs = df[0].values.astype(float)
+            cp_obs = df.iloc[:, 1:].mean(axis=1).values.astype(float)
             
-            r2c1, r2c2, r2c3, r2c4 = st.columns(4)
-            v_u = r2c1.selectbox("V units", list(VOLUME_UNIT_TO_L.keys()), index=1)
-            k10 = r2c2.number_input("k10 (1/h)", value=0.77, format="%.4f")
-            k12 = r2c3.number_input("k12 (1/h)", value=1.38, format="%.4f", disabled=comps < 2)
-            k21 = r2c4.number_input("k21 (1/h)", value=1.81, format="%.4f", disabled=comps < 2)
+            # Setup Disposition
+            disp = {
+                "compartments": comps, "k10": k10, "k12": k12, "k21": k21, "k13": 0.0, "k31": 0.0,
+                "dose_mg": dose_val * DOSE_UNIT_TO_MG[dose_u], 
+                "V_L": v_val * VOLUME_UNIT_TO_L[v_u]
+            }
+
+            p_names = final_edit['Parameter'].tolist()
+            init_vals = final_edit['Initial Value'].values.astype(float)
+            lbs = final_edit['Min'].values.astype(float)
+            ubs = final_edit['Max'].values.astype(float)
+            fix_mask = final_edit['Fix'].values.astype(bool)
             
-            r3c1, r3c2, r3c3 = st.columns([1, 1, 2])
-            k13 = r3c1.number_input("k13 (1/h)", value=0.0, format="%.4f", disabled=comps < 3)
-            k31 = r3c2.number_input("k31 (1/h)", value=0.0, format="%.4f", disabled=comps < 3)
-            bio = r3c3.slider("Bioavailability (F)", 0.0, 1.0, 1.0)
-
-        # 2. Data and Model
-        pk_text = st.text_area("2. Paste PK Table (Time | Cp1 | Cp2 ...)", height=150)
-        model_choice = st.selectbox("3. Select Weibull Model", ["Single Weibull", "Double Weibull", "Triple Weibull"], index=2)
-        
-        # 4. Wide Parameter Editor Logic
-        param_names = {
-            "Single Weibull": ["Fmax", "MDT1", "b1"],
-            "Double Weibull": ["Fmax", "f1", "MDT1", "b1", "MDT2", "b2"],
-            "Triple Weibull": ["Fmax", "f1", "f2", "MDT1", "b1", "MDT2", "b2", "MDT3", "b3"]
-        }[model_choice]
-
-        # Construct Editor DataFrame
-        defaults = {"Fmax": 100.0, "f1": 0.5, "f2": 0.3, "MDT1": 5.0, "b1": 1.2, "MDT2": 20.0, "b2": 1.5, "MDT3": 50.0, "b3": 2.0}
-        df_init = pd.DataFrame(index=["Initial Value", "Min", "Max", "Fix"], columns=param_names)
-        for p in param_names:
-            df_init.at["Initial Value", p] = defaults.get(p, 10.0)
-            # Apply hard constraints to bounds
-            df_init.at["Min", p] = 0.0
-            if "Fmax" in p: df_init.at["Max", p] = 100.0 # Hard limit 100
-            elif "f" in p: df_init.at["Max", p] = 1.0 # Hard limit 1.0
-            else: df_init.at["Max", p] = 1000.0
-            df_init.at["Fix", p] = False
-
-        st.write("4. Parameters (Wide Format)")
-        edited_df = st.data_editor(df_init.T.reset_index().rename(columns={'index': 'Parameter'}), 
-                                   hide_index=True, use_container_width=True)
-        
-        if st.button("Run Deconvolution Fit") and pk_text:
-            try:
-                pk_df = parse_pk_profile_table(pk_text)
-                t_obs = pk_df.iloc[:, 0].values.astype(float)
-                cp_obs = pk_df.iloc[:, 1:].mean(axis=1).values.astype(float)
+            opt_idx = [i for i, fixed in enumerate(fix_mask) if not fixed]
+            
+            def objective(x_opt):
+                p_curr = init_vals.copy()
+                p_curr[opt_idx] = x_opt
+                p_dict = dict(zip(p_names, p_curr))
                 
-                disp = {
-                    "compartments": comps, "k10": k10, "k12": k12, "k21": k21, "k13": k13, "k31": k31,
-                    "dose_mg": dose_val * DOSE_UNIT_TO_MG[dose_u], "V_L": v_val * VOLUME_UNIT_TO_L[v_u], "bio": bio
-                }
+                # Use a smaller rtol for better accuracy in complex triple Weibulls
+                sol = solve_ivp(pk_ode_rhs, (0, t_obs[-1]), [0.0]*comps, t_eval=t_obs, 
+                                args=(model_choice, p_dict, disp), method='LSODA', rtol=1e-7, atol=1e-9)
                 
-                p_names = edited_df['Parameter'].tolist()
-                init_vals = edited_df['Initial Value'].values.astype(float)
-                lbs = edited_df['Min'].values.astype(float)
-                ubs = edited_df['Max'].values.astype(float)
-                fix_mask = edited_df['Fix'].values.astype(bool)
+                if not sol.success: return np.ones_like(cp_obs) * 1e6
                 
-                opt_idx = [i for i, fixed in enumerate(fix_mask) if not fixed]
-                x0 = init_vals[opt_idx]
-                bounds = (lbs[opt_idx], ubs[opt_idx])
+                # Convert Amount (mg) to Concentration (ng/mL if Dose was ng and V was mL)
+                # Amount is in mg. V_L is in L. mg/L = ug/mL. 
+                # To match ng/mL, we multiply by 1000.
+                cp_pred = (sol.y[0] / disp['V_L']) * 1000.0
+                return cp_pred - cp_obs
 
-                def objective(x_try):
-                    curr_p_vals = init_vals.copy()
-                    curr_p_vals[opt_idx] = x_try
-                    p_dict = dict(zip(p_names, curr_p_vals))
-                    
-                    # Hard Constraint Penalty: f1 + f2 must be <= 1.0
-                    if model_choice == "Triple Weibull":
-                        if (p_dict.get('f1', 0) + p_dict.get('f2', 0)) > 1.0:
-                            return np.ones_like(cp_obs) * 1e9 # Huge error to push optimizer away
-                    
-                    sol = solve_ivp(pk_ode_rhs, (0, t_obs[-1]), [0]*comps, t_eval=t_obs, 
-                                    args=(model_choice, p_dict, disp), method='RK45', rtol=1e-5)
-                    
-                    if not sol.success: return np.ones_like(cp_obs) * 1e6
-                    cp_pred = sol.y[0] / (disp['V_L'] / VOLUME_UNIT_TO_L[v_u])
-                    return cp_pred - cp_obs
+            # Run Fitting
+            res = least_squares(objective, init_vals[opt_idx], bounds=(lbs[opt_idx], ubs[opt_idx]), 
+                                xtol=1e-8, ftol=1e-8, method='trf')
+            
+            # Display
+            final_p = init_vals.copy()
+            final_p[opt_idx] = res.x
+            res_dict = dict(zip(p_names, final_p))
+            st.success("Fitting Finished")
+            st.json(res_dict)
+            
+            # Final Plot
+            t_fine = np.linspace(0, t_obs[-1], 400)
+            sol_final = solve_ivp(pk_ode_rhs, (0, t_fine[-1]), [0.0]*comps, t_eval=t_fine, 
+                                  args=(model_choice, res_dict, disp), method='LSODA')
+            
+            fig, ax = plt.subplots()
+            ax.scatter(t_obs, cp_obs, color='black', label='Observed (Mean)')
+            ax.plot(t_fine, (sol_final.y[0]/disp['V_L'])*1000.0, color='red', label='Convolution Fit')
+            ax.set_xlabel("Time (h)")
+            ax.set_ylabel("Cp (ng/mL)")
+            ax.legend()
+            st.pyplot(fig)
 
-                res = least_squares(objective, x0, bounds=bounds, method='trf', ftol=1e-4)
-                
-                # Update estimates
-                final_params_vals = init_vals.copy()
-                final_params_vals[opt_idx] = res.x
-                final_p_dict = dict(zip(p_names, final_params_vals))
-
-                st.success("Fit Complete!")
-                st.table(pd.DataFrame([final_p_dict], index=["Estimate"]))
-                
-                # Plot
-                t_plot = np.linspace(0, t_obs[-1], 300)
-                sol_plot = solve_ivp(pk_ode_rhs, (0, t_plot[-1]), [0]*comps, t_eval=t_plot, 
-                                     args=(model_choice, final_p_dict, disp))
-                fig, ax = plt.subplots()
-                ax.scatter(t_obs, cp_obs, color="black", label="Data")
-                ax.plot(t_plot, sol_plot.y[0] / (disp['V_L'] / VOLUME_UNIT_TO_L[v_u]), color="red", label="Analytical Fit")
-                ax.set_ylabel("Cp")
-                ax.legend()
-                st.pyplot(fig)
-
-            except Exception as e:
-                st.error(f"Error: {e}")
+        except Exception as e:
+            st.error(f"Error: {e}")
 
 if __name__ == "__main__":
     render()
