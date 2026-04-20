@@ -69,75 +69,29 @@ def init_page(page_title="lm Stats"):
     inject_css()
 
 
-import streamlit as st
-
 def inject_css():
     st.markdown(
         """
         <style>
-        /* Base Container */
         .block-container {padding-top: 0.9rem; padding-bottom: 2rem;}
-        
-        /* Premium Header with Left Accent */
-        .app-header {
-            border: 1px solid #e2e8f0; 
-            border-left: 5px solid #3b82f6; /* Blue accent line */
-            border-radius: 14px; 
-            padding: 16px 20px;
-            background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%); 
-            margin-bottom: 1.5rem; 
-            margin-top: 1rem;
-            box-shadow: 0 4px 6px -1px rgba(15,23,42,0.05), 0 2px 4px -1px rgba(15,23,42,0.03);
-        }
-        
-        /* Keep the layout for the title wrapper */
-        .app-title {
-            font-size: 1.75rem; 
-            font-weight: 800; 
-            margin-bottom: 0.2rem; 
-        }
-        
-        /* Apply the gradient ONLY to the text span */
-        .title-text {
-            background: -webkit-linear-gradient(45deg, #0f172a, #334155);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .app-sub {font-size: 0.96rem; color:#475569; font-weight: 500;}
-        
-        /* Table Enhancements */
-        .report-table table {width:100%; border-collapse:collapse; background:white; font-size:0.95rem; border-radius: 8px; overflow: hidden;}
+        .app-header {border:1px solid #e2e8f0; border-radius:14px; padding:16px 20px;
+            background: linear-gradient(90deg, #f8fafc 0%, #ffffff 100%); margin-bottom: 1rem;
+            box-shadow: 0 1px 4px rgba(15,23,42,0.05);}
+        .app-title {font-size: 1.75rem; font-weight: 700; margin-bottom: 0.2rem; color:#0f172a;}
+        .app-sub {font-size: 0.96rem; color:#475569;}
+        .report-table table {width:100%; border-collapse:collapse; background:white; font-size:0.95rem;}
         .report-table caption {text-align:left; font-weight:700; font-size:1rem; color:#111827; margin-bottom:0.55rem;}
-        .report-table thead th {
-            border-top:2px solid #111827; 
-            border-bottom:2px solid #111827;
-            padding:10px 12px; text-align:center; background:#f8fafc; color:#111827;
-        }
-        .report-table tbody td {padding:10px 12px; text-align:center; border-bottom: 1px solid #f1f5f9;}
-        /* Table Row Hover Effect */
-        .report-table tbody tr:hover {background-color: #f8fafc; transition: background-color 0.2s ease;}
+        .report-table thead th {border-top:2px solid #111827; border-bottom:1px solid #111827;
+            padding:8px 12px; text-align:center; background:#f8fafc; color:#111827;}
+        .report-table tbody td {padding:8px 12px; text-align:center; border:none;}
         .report-table tbody tr:last-child td {border-bottom:2px solid #111827;}
         .report-caption {font-size:0.85rem; color:#475569; margin-top:-0.5rem; margin-bottom:0.75rem;}
-        
-        /* Interactive Metric Cards */
-        div[data-testid='stMetric'] {
-            border:1px solid #e2e8f0; 
-            border-radius:12px; 
-            padding:12px 16px; 
-            background:#fff;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-            transition: all 0.3s ease; /* Smooth animation setup */
-        }
-        /* Hover state for Metric Cards */
-        div[data-testid='stMetric']:hover {
-            transform: translateY(-3px); /* Move up 3 pixels */
-            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -2px rgba(0,0,0,0.04); /* Deeper shadow */
-            border-color: #cbd5e1;
-        }
+        div[data-testid='stMetric'] {border:1px solid #e2e8f0; border-radius:12px; padding:10px 12px; background:#fff;}
         </style>
         """,
         unsafe_allow_html=True,
     )
+
 
 def _parse_style_float(val):
     if val in [None, "", "None"]:
