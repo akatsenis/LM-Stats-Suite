@@ -650,7 +650,7 @@ def plot_weibull_profile_fits(df, fit_pack, time_unit_label):
     for rep in rep_cols:
         ax.plot(time_col, df[rep].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
     mean_df = fit_pack["mean_profile_df"]
-    ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean")
+    ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linestyle='none', label="Observed mean")
     for model_name in fit_pack.get("model_names", list(MODEL_SPECS.keys())):
         sub = fit_pack["curve_df"].loc[fit_pack["curve_df"]["Model"] == model_name]
         lw = cfg["line_width"] + (0.8 if model_name == fit_pack["best_model"] else 0.0)
@@ -668,7 +668,7 @@ def plot_best_model_profile(df, fit_pack, time_unit_label):
     for rep in rep_cols:
         ax.plot(time_col, df[rep].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.22, linewidth=max(0.8, cfg["aux_line_width"]))
     mean_df = fit_pack["mean_profile_df"]
-    ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean")
+    ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linestyle='none', label="Observed mean")
     best = fit_pack["best_model"]
     sub = fit_pack["curve_df"].loc[fit_pack["curve_df"]["Model"] == best]
     ax.plot(sub["Time_input"], sub["Predicted"], linewidth=cfg["line_width"] + 0.9, color=cfg["tertiary_color"], label=f"Fitted {best}")
@@ -1478,7 +1478,7 @@ def plot_deconvolution_pk_fit(pack):
     for col in pack["cp_cols"]:
         ax.plot(t, df[col].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
     mean_df = pack["mean_pk_df"]
-    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean Cp")
+    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linestyle='none', label="Observed mean Cp")
     pred = pack["best_fit"]["yhat"]
     ax.plot(mean_df["Time_input"], pred, color=cfg["tertiary_color"], linewidth=cfg["line_width"] + 0.8, label=f"Fitted {pack['best_model']} Cp")
     apply_ax_style(ax, f"Observed and fitted PK profile ({pack['best_model']})", f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
@@ -1731,7 +1731,7 @@ def plot_ivivc_pk_fit(pack):
     for col in pack["cp_cols"]:
         ax.plot(t, df[col].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
     mean_df = pack["mean_pk_df"]
-    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean Cp")
+    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linestyle='none', label="Observed mean Cp")
     ax.plot(mean_df["Time_input"], pack["fit"]["pred_pack"]["cp_obs"], color=cfg["tertiary_color"], linewidth=cfg["line_width"] + 0.8, label="IVIVC fitted Cp")
     apply_ax_style(ax, f"Observed and IVIVC-fitted PK profile ({pack['saved_invitro_model']})", f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
     return fig
