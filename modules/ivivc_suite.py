@@ -2153,23 +2153,23 @@ def render():
         with d2:
             dose_value = st.number_input("Dose", min_value=0.000001, value=6666666.6, format="%.4f", key="deconv_dose_value")
         with d3:
-            dose_unit = st.selectbox("Dose units", list(DOSE_UNIT_TO_MG.keys()), index=2, key="deconv_dose_unit")
+            dose_unit = st.selectbox("Dose units", list(DOSE_UNIT_TO_MG.keys()), index=0, key="deconv_dose_unit")
         with d4:
-            v_value = st.number_input("V", min_value=0.000001, value=50.0, format="%.6f", key="deconv_v_value")
+            v_value = st.number_input("V", min_value=0.000001, value=1136.9, format="%.6f", key="deconv_v_value")
         d5, d6, d7, d8 = st.columns(4)
         with d5:
-            v_unit = st.selectbox("V units", list(VOLUME_UNIT_TO_L.keys()), index=2, key="deconv_v_unit")
+            v_unit = st.selectbox("V units", list(VOLUME_UNIT_TO_L.keys()), index=1, key="deconv_v_unit")
         with d6:
-            k10 = st.number_input("k10 (1/h)", min_value=0.000001, value=0.254000, format="%.6f", key="deconv_k10")
+            k10 = st.number_input("k10 (1/h)", min_value=0.000001, value=0.770000, format="%.6f", key="deconv_k10")
         with d7:
-            k12 = st.number_input("k12 (1/h)", min_value=0.0, value=0.100000, format="%.6f", key="deconv_k12", disabled=compartments < 2)
+            k12 = st.number_input("k12 (1/h)", min_value=0.0, value=1.382000, format="%.6f", key="deconv_k12", disabled=compartments < 2)
         with d8:
-            k21 = st.number_input("k21 (1/h)", min_value=0.0, value=0.050000, format="%.6f", key="deconv_k21", disabled=compartments < 2)
+            k21 = st.number_input("k21 (1/h)", min_value=0.0, value=1.814000, format="%.6f", key="deconv_k21", disabled=compartments < 2)
         d9, d10 = st.columns(2)
         with d9:
-            k13 = st.number_input("k13 (1/h)", min_value=0.0, value=0.050000, format="%.6f", key="deconv_k13", disabled=compartments < 3)
+            k13 = st.number_input("k13 (1/h)", min_value=0.0, value=1.000000, format="%.6f", key="deconv_k13", disabled=compartments < 3)
         with d10:
-            k31 = st.number_input("k31 (1/h)", min_value=0.0, value=0.020000, format="%.6f", key="deconv_k31", disabled=compartments < 3)
+            k31 = st.number_input("k31 (1/h)", min_value=0.0, value=0.000000, format="%.6f", key="deconv_k31", disabled=compartments < 3)
         model_choice = st.selectbox("Weibull model(s) to fit", MODEL_CHOICE_OPTIONS, index=0, key="deconv_model_choice")
         st.caption("The best model is selected from the Weibull model(s) you choose here. KAB is computed as a finite-difference derivative of the Weibull release curve and the PK profile is generated with the paper-style compartment ODEs using the user-supplied microconstants, dose, and V. Fmax is the only amplitude parameter in the Weibull model, so choosing a single model can make the run substantially faster when the structure is already known.")
 
