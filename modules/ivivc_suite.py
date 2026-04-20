@@ -1408,17 +1408,48 @@ def _candidate_starts_deconv(model_name, base_init, lb, ub):
     return out
 
 
-def _kab_from_cumfrac_grid(t_grid_h, cumfrac_grid, delta_h=0.01):
-    t_grid_h = np.asarray(t_grid_h, dtype=float)
-    cumfrac_grid = np.clip(np.asarray(cumfrac_grid, dtype=float), 0.0, 1.0)
-    kab = np.zeros_like(t_grid_h)
-    for i, t in enumerate(t_grid_h):
-        t1 = max(0.0, t - delta_h)
-        t2 = t + delta_h
-        w1 = np.interp(t1, t_grid_h, cumfrac_grid)
-        w2 = np.interp(t2, t_grid_h, cumfrac_grid)
-        kab[i] = max(0.0, (w2 - w1) / max(t2 - t1, 1e-12))
-    return kab
+def _weibull_rate_unit(t, MDT, b):
+    """Calculates the derivative of a single Weibull unit (PDF)"""
+    t_safe = np.clip(t, 1e-12, None)
+    # The derivative: (b/MDT) * (t/MDT)**(b-1) * exp(-(t/MDT)**b)
+    term1 = b / np.maximum(MDT, 1e-12)
+    term2 = np.power(t_safe / np.maximum(MDT, 1e-12), b - 1)
+    term3 = np.exp(-np.power(t_safe / np.maximum(MDT, 1e-12), b))
+    return term1 * term2 * term3
+
+def get_weibull_rate(t, model_name, params):
+    """
+    Returns the instantaneous release rate (kab) for Single, Double, or Triple Weibull.
+    params are expected as [Fmax, ...]
+    """
+    p = np.asarray(params, dtype=float)
+    Fmax_factor = p[0] / 100.0
+    
+    if model_name == "Single Weibull":
+        # params: [Fmax, MDT1, b1]
+        return Fmax_factor * _weibull_rate_unit(t, p[1], p[2])
+        
+    elif model_name == "Double Weibull":
+        # params: [Fmax, f1, MDT1, b1, MDT2, b2]
+        f1 = np.clip(p[1], 0.0, 1.0)
+        rate1 = f1 * _weibull_rate_unit(t, p[2], p[3])
+        rate2 = (1.0 - f1) * _weibull_rate_unit(t, p[4], p[5])
+        return Fmax_factor * (rate1 + rate2)
+        
+    elif model_name == "Triple Weibull":
+        # params: [Fmax, f1, f2, MDT1, b1, MDT2, b2, MDT3, b3]
+        f1 = np.clip(p[1], 0.0, 1.0)
+        f2 = np.clip(p[2], 0.0, 1.0)
+        if f1 + f2 > 1.0:
+            tot = f1 + f2
+            f1, f2 = f1/tot, f2/tot
+        f3 = 1.0 - f1 - f2
+        rate1 = f1 * _weibull_rate_unit(t, p[3], p[4])
+        rate2 = f2 * _weibull_rate_unit(t, p[5], p[6])
+        rate3 = f3 * _weibull_rate_unit(t, p[7], p[8])
+        return Fmax_factor * (rate1 + rate2 + rate3)
+    
+    return np.zeros_like(t)
 
 
 def _simulate_pk_ode_from_cumfrac_grid(t_obs_h, t_grid_h, cumfrac_grid, disposition, delta_h=0.01):
@@ -1438,11 +1469,11 @@ def _simulate_pk_ode_from_cumfrac_grid(t_obs_h, t_grid_h, cumfrac_grid, disposit
     cp_factor = float(disposition["cp_factor"])
 
     def ode_rhs(t, a):
-        kab = max(0.0, float(np.interp(t, t_grid_h, kab_grid)))
+        kab = get_weibull_rate(t, model_name, params)
         a1 = a[0]
         a2 = a[1] if comps >= 2 else 0.0
         a3 = a[2] if comps >= 3 else 0.0
-        da1 = bio * dose_mg * kab - k10 * a1 - k12 * a1 + k21 * a2 - k13 * a1 + k31 * a3
+        da1 = (disposition["bio"] * disposition["dose_mg"] * kab) - (disposition["k10"] * a1)
         if comps == 1:
             return [da1]
         da2 = k12 * a1 - k21 * a2
