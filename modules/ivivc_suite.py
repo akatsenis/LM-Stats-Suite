@@ -34,6 +34,27 @@ TIME_UNIT_TO_HOURS = {
     "Days": 24.0,
 }
 
+DOSE_UNIT_TO_MG = {
+    "ng": 1e-6,
+    "ug": 1e-3,
+    "mg": 1.0,
+    "g": 1e3,
+}
+
+VOLUME_UNIT_TO_L = {
+    "uL": 1e-6,
+    "mL": 1e-3,
+    "L": 1.0,
+}
+
+CP_MG_PER_L_TO_UNIT = {
+    "mg/L": 1.0,
+    "ug/mL": 1.0,
+    "ng/mL": 1e3,
+    "ug/L": 1e3,
+    "mg/mL": 1e-3,
+}
+
 
 def load_dual_sample_text(state_key_a, sample_key_a, state_key_b, sample_key_b):
     from modules.stats_suite import SAMPLE_DATA
