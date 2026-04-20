@@ -1710,6 +1710,92 @@ def _ivivc_expand_params(params, use_paper_defaults=True, fit_bio=False, fixed_b
     return float(A1), float(A2), float(B1), float(B2), float(B3), float(BIO)
 
 
+def _evaluate_saved_invitro_fraction_and_rate(t_scaled_h, saved_invitro):
+    model_name = saved_invitro["model"]
+    param_map = saved_invitro["parameter_estimates"]
+    order = MODEL_SPECS[model_name]["param_names"]
+    params = np.asarray([param_map[k] for k in order], dtype=float)
+    frac = _cumfrac_weibull_fmax(model_name, t_scaled_h, params)
+    rate = _kab_analytical_fmax(model_name, t_scaled_h, params)
+    return np.clip(frac, 0.0, 1.0), np.clip(rate, 0.0, None)
+
+
+def _ivivc_transformed_release_fraction_rate(t_h, saved_invitro, params, use_paper_defaults=True, fit_bio=False, fixed_bio=1.0):
+    t_h = np.asarray(t_h, dtype=float)
+    A1, A2, B1, B2, B3, BIO = _ivivc_expand_params(params, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio)
+    t_nonneg = np.clip(t_h, 0.0, None)
+    t_scaled = np.clip(B1 + B2 * np.power(t_nonneg, B3), 0.0, None)
+    vitro_frac, vitro_rate_scaled = _evaluate_saved_invitro_fraction_and_rate(t_scaled, saved_invitro)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        dt_scaled_dt = B2 * B3 * np.power(np.maximum(t_nonneg, 1e-12), B3 - 1.0)
+    dt_scaled_dt = np.where(np.isfinite(dt_scaled_dt), dt_scaled_dt, 0.0)
+    dt_scaled_dt = np.clip(dt_scaled_dt, 0.0, None)
+    vabs = np.clip(1.0 - (A1 + A2 * (1.0 - vitro_frac)), 0.0, 1.0)
+    kab = np.clip(A2 * vitro_rate_scaled * dt_scaled_dt, 0.0, None)
+    return {
+        "t_scaled_h": t_scaled,
+        "vitro_frac": vitro_frac,
+        "vabs": vabs,
+        "kab": kab,
+        "A1": A1,
+        "A2": A2,
+        "B1": B1,
+        "B2": B2,
+        "B3": B3,
+        "BIO": BIO,
+    }
+
+
+def _simulate_pk_ode_from_rate_grid(t_obs_h, t_grid_h, kab_grid, disposition):
+    t_obs_h = np.asarray(t_obs_h, dtype=float)
+    t_grid_h = np.asarray(t_grid_h, dtype=float)
+    kab_grid = np.clip(np.asarray(kab_grid, dtype=float), 0.0, None)
+    if len(t_grid_h) < 2:
+        raise ValueError("Time grid for IVIVC simulation must contain at least two points.")
+
+    def _rhs_from_grid(t, y, disposition_local, t_grid_local, kab_grid_local):
+        kab = float(np.interp(t, t_grid_local, kab_grid_local, left=kab_grid_local[0], right=kab_grid_local[-1]))
+        input_mass = float(disposition_local["dose_mg"]) * float(disposition_local.get("bio", 1.0)) * kab
+        comps = int(disposition_local["compartments"])
+        k10 = float(disposition_local["k10"])
+        a1 = y[0]
+        if comps == 1:
+            da1 = input_mass - k10 * a1
+            return [da1]
+        k12 = float(disposition_local.get("k12", 0.0))
+        k21 = float(disposition_local.get("k21", 0.0))
+        a2 = y[1]
+        if comps == 2:
+            da1 = input_mass - (k10 + k12) * a1 + k21 * a2
+            da2 = k12 * a1 - k21 * a2
+            return [da1, da2]
+        k13 = float(disposition_local.get("k13", 0.0))
+        k31 = float(disposition_local.get("k31", 0.0))
+        a3 = y[2]
+        da1 = input_mass - (k10 + k12 + k13) * a1 + k21 * a2 + k31 * a3
+        da2 = k12 * a1 - k21 * a2
+        da3 = k13 * a1 - k31 * a3
+        return [da1, da2, da3]
+
+    comps = int(disposition["compartments"])
+    sol = solve_ivp(
+        _rhs_from_grid,
+        (0.0, float(t_grid_h[-1])),
+        np.zeros(comps, dtype=float),
+        t_eval=t_grid_h,
+        args=(disposition, t_grid_h, kab_grid),
+        method="LSODA",
+        rtol=1e-7,
+        atol=1e-9,
+    )
+    if not sol.success:
+        raise ValueError("ODE solver failed while simulating the IVIVC PK profile.")
+    a1_grid = sol.y[0]
+    cp_grid = _mg_per_l_to_cp_unit(a1_grid / max(float(disposition["V_L"]), 1e-12), disposition["cp_unit"])
+    cp_obs = np.interp(t_obs_h, t_grid_h, cp_grid)
+    return cp_obs, cp_grid, sol.y
+
+
 def _simulate_pk_ode_from_cumfrac_grid(t_obs_h, t_grid_h, cumfrac_grid, disposition):
     t_obs_h = np.asarray(t_obs_h, dtype=float)
     t_grid_h = np.asarray(t_grid_h, dtype=float)
@@ -1763,36 +1849,38 @@ def _simulate_pk_ode_from_cumfrac_grid(t_obs_h, t_grid_h, cumfrac_grid, disposit
 
 
 def _predict_ivivc_pk(t_h, saved_invitro, params, disposition, use_paper_defaults=True, fit_bio=False, fixed_bio=1.0):
-    A1, A2, B1, B2, B3, BIO = _ivivc_expand_params(params, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio)
     t_grid = _time_grid_from_obs(t_h)
-    t_scaled = np.clip(B1 + B2 * np.power(np.clip(t_grid, 0.0, None), B3), 0.0, None)
-    vitro_pct = _evaluate_saved_invitro_dissolution_percent(t_scaled, saved_invitro)
-    tx1 = np.clip(1.0 - vitro_pct / 100.0, 0.0, 1.0)
-    vabs = np.clip(1.0 - (A1 + A2 * tx1), 0.0, 1.0)
+    trans = _ivivc_transformed_release_fraction_rate(t_grid, saved_invitro, params, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio)
     disp = dict(disposition)
-    disp["bio"] = BIO
-    cp_obs, cp_grid, kab_grid, state_grid = _simulate_pk_ode_from_cumfrac_grid(t_h, t_grid, vabs, disp)
+    disp["bio"] = trans["BIO"]
+    cp_obs, cp_grid, state_grid = _simulate_pk_ode_from_rate_grid(t_h, t_grid, trans["kab"], disp)
     return {
         "t_grid_h": t_grid,
-        "t_scaled_h": t_scaled,
-        "tx1_grid": tx1,
-        "cumfrac_grid": vabs,
+        "t_scaled_h": trans["t_scaled_h"],
+        "tx1_grid": 1.0 - trans["vitro_frac"],
+        "cumfrac_grid": trans["vabs"],
         "cp_obs": cp_obs,
         "cp_grid": cp_grid,
-        "kab_grid": kab_grid,
+        "kab_grid": trans["kab"],
         "state_grid": state_grid,
-        "A1": A1,
-        "A2": A2,
-        "B1": B1,
-        "B2": B2,
-        "B3": B3,
-        "BIO": BIO,
+        "A1": trans["A1"],
+        "A2": trans["A2"],
+        "B1": trans["B1"],
+        "B2": trans["B2"],
+        "B3": trans["B3"],
+        "BIO": trans["BIO"],
     }
 
 
 def _ivivc_residuals(params, t_h, y, saved_invitro, disposition, use_paper_defaults=True, fit_bio=False, fixed_bio=1.0):
     pred = _predict_ivivc_pk(t_h, saved_invitro, params, disposition, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio)["cp_obs"]
     return pred - y
+
+
+def _ivivc_residuals_release(params, t_h, y_release, saved_invitro, disposition, use_paper_defaults=True, fit_bio=False, fixed_bio=1.0):
+    pred = _predict_ivivc_pk(t_h, saved_invitro, params, disposition, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio)
+    pred_release = np.interp(np.asarray(t_h, dtype=float), pred["t_grid_h"], pred["cumfrac_grid"])
+    return pred_release - np.asarray(y_release, dtype=float)
 
 
 def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper_defaults=True, fit_bio=False, fixed_bio=1.0, saved_invivo=None, progress_callback=None, progress_every=10):
@@ -1807,19 +1895,49 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
     fit_bio_effective = bool(fit_bio) and not use_saved_invivo
 
     p0, lb, ub, pnames = _ivivc_default_bounds(t_h, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio_effective)
-    starts = [p0.copy(), np.clip(p0 * np.array([0.7] * len(p0)), lb + 1e-12, ub - 1e-12), np.clip(p0 * np.array([1.3] * len(p0)), lb + 1e-12, ub - 1e-12)]
+    starts = [p0.copy()]
+    starts += [
+        np.clip(p0 * np.array([0.7] * len(p0)), lb + 1e-12, ub - 1e-12),
+        np.clip(p0 * np.array([1.3] * len(p0)), lb + 1e-12, ub - 1e-12),
+    ]
+    if use_paper_defaults:
+        if fit_bio_effective:
+            starts += [
+                np.array([0.7, 1.0, 0.8]),
+                np.array([1.3, 1.0, 1.0]),
+                np.array([1.0, 0.8, 1.2]),
+                np.array([1.0, 1.2, 0.8]),
+            ]
+        else:
+            starts += [
+                np.array([0.7, 1.0]),
+                np.array([1.3, 1.0]),
+                np.array([1.0, 0.8]),
+                np.array([1.0, 1.2]),
+                np.array([0.5, 1.5]),
+                np.array([1.5, 0.7]),
+            ]
+    else:
+        base = p0.copy()
+        delta1 = np.array([0.0, 0.0, -0.1 * max(np.nanmax(t_h), 1.0), -0.2, 0.0] + ([0.0] if fit_bio_effective else []))
+        delta2 = np.array([0.0, 0.0, 0.1 * max(np.nanmax(t_h), 1.0), 0.2, 0.2] + ([0.0] if fit_bio_effective else []))
+        starts += [
+            np.clip(base + delta1, lb + 1e-12, ub - 1e-12),
+            np.clip(base + delta2, lb + 1e-12, ub - 1e-12),
+        ]
+    starts = [np.clip(np.asarray(s, dtype=float), lb + 1e-12, ub - 1e-12) for s in starts]
+
     progress_state = {"calls": 0, "best_err": np.inf}
 
     def _emit_progress(err_val):
         if progress_callback is None:
             return
         err_val = float(err_val)
+        prefix = "Fitting IVIVC to saved InVivoFit release" if use_saved_invivo else "Fitting IVIVC to the PK profile"
         if np.isfinite(err_val):
             progress_state["best_err"] = min(progress_state["best_err"], err_val)
-            prefix = "Fitting IVIVC to saved InVivoFit release" if use_saved_invivo else "Fitting IVIVC to the PK profile"
             msg = f"{prefix}, Error = {progress_state['best_err']:.6g}"
         else:
-            prefix = "Fitting IVIVC to saved InVivoFit release" if use_saved_invivo else "Fitting IVIVC to the PK profile"
             msg = f"{prefix}, Error = —"
         progress_callback(0, 1, msg)
 
@@ -1833,13 +1951,7 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
                     if progress_state["calls"] == 1 or progress_state["calls"] % max(int(progress_every), 1) == 0:
                         _emit_progress(np.sum(np.square(resid)))
                     return resid
-                res = least_squares(
-                    _resid_release_local,
-                    x0=start,
-                    bounds=(lb, ub),
-                    max_nfev=50000,
-                    method="trf",
-                )
+                res = least_squares(_resid_release_local, x0=start, bounds=(lb, ub), max_nfev=50000, method="trf")
             else:
                 def _resid_pk_local(x):
                     resid = _ivivc_residuals(x, t_h, mean_cp, saved_invitro, disposition, use_paper_defaults, fit_bio_effective, fixed_bio)
@@ -1847,14 +1959,8 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
                     if progress_state["calls"] == 1 or progress_state["calls"] % max(int(progress_every), 1) == 0:
                         _emit_progress(np.sum(np.square(resid)))
                     return resid
-                res = least_squares(
-                    _resid_pk_local,
-                    x0=start,
-                    bounds=(lb, ub),
-                    max_nfev=50000,
-                    method="trf",
-                )
-            if not res.success:
+                res = least_squares(_resid_pk_local, x0=start, bounds=(lb, ub), max_nfev=50000, method="trf")
+            if not (res.success and np.all(np.isfinite(res.x))):
                 continue
             pred_pack = _predict_ivivc_pk(t_h, saved_invitro, res.x, disposition, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio_effective, fixed_bio=fixed_bio)
             if use_saved_invivo:
@@ -1866,6 +1972,8 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
                 target = mean_cp
                 target_label = "Observed PK profile"
             rss = float(np.sum((target - yhat) ** 2))
+            if not np.isfinite(rss):
+                continue
             _emit_progress(rss)
             n = len(target)
             k = len(res.x)
@@ -1894,7 +2002,7 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
         except Exception:
             continue
     if best is None:
-        raise ValueError("IVIVC fit did not converge for the available saved models and input PK data.")
+        raise ValueError("IVIVC fit did not converge. This usually means the current time-scaling parameters could not match the selected target. Try checking the saved InVitroFit/InVivoFit models, using the saved InVivo PK, running IVIVC without a saved InVivoFit so it fits the PK directly, or changing the time-scaling settings.")
     rows = []
     for name, est, init, lo, hi in zip(best["param_names"], best["params"], best["init"], best["lb"], best["ub"]):
         rows.append({"Parameter": name, "Estimate": est, "Initial": init, "Min": lo, "Max": hi})
@@ -1941,7 +2049,6 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
         "pk_mean_summary_df": pk_tables["mean_summary_df"],
         "pk_mean_profile_df": pk_tables["mean_profile_df"],
     }
-
 
 
 def plot_ivivc_pk_fit(pack):
@@ -2761,9 +2868,9 @@ def render():
                 fixed_bio = st.number_input("Fixed BIO", min_value=0.000001, value=1.000000, format="%.6f", key="ivivc_fixed_bio", disabled=fit_bio)
 
             if saved_invivo is not None:
-                st.caption("The saved in vitro Weibull model is transformed through the IVIVC time-scaling function t'' = B1 + B2·t^B3 and is fitted against the saved InVivoFit release profile. The PK table and the disposition settings are still used to back-predict the PK profile for validation and reporting.")
+                st.caption("The saved in vitro Weibull model is transformed through the IVIVC time-scaling function t'' = B1 + B2·t^B3. The transformed in vitro release is fitted directly to the saved InVivoFit release profile, and the PK profile is then back-predicted with the same transformation using the compartment ODE system.")
             else:
-                st.caption("The saved in vitro Weibull model is transformed through the paper-style time-scaling function t'' = B1 + B2·t^B3. Because no saved InVivoFit is currently available, the transformed profile is fitted directly against the PK profile through the compartment ODE system.")
+                st.caption("The saved in vitro Weibull model is transformed through the IVIVC time-scaling function t'' = B1 + B2·t^B3. If no saved InVivoFit is available, the time-scaling parameters are estimated directly against the PK profile while the PK is generated through the compartment ODE system at the same time.")
 
             if saved_invivo is not None and fit_bio:
                 st.info("Fit BIO is disabled when the objective is the saved InVivoFit release profile, because BIO is not identifiable from the release-vs-release IVIVC mapping alone. The current Fixed BIO value is used only for PK back-prediction.")
