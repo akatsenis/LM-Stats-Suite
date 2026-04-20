@@ -650,7 +650,7 @@ def plot_weibull_profile_fits(df, fit_pack, time_unit_label):
     for rep in rep_cols:
         ax.plot(time_col, df[rep].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
     mean_df = fit_pack["mean_profile_df"]
-    ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linestyle='none', label="Observed mean")
+    ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean")
     for model_name in fit_pack.get("model_names", list(MODEL_SPECS.keys())):
         sub = fit_pack["curve_df"].loc[fit_pack["curve_df"]["Model"] == model_name]
         lw = cfg["line_width"] + (0.8 if model_name == fit_pack["best_model"] else 0.0)
@@ -668,7 +668,7 @@ def plot_best_model_profile(df, fit_pack, time_unit_label):
     for rep in rep_cols:
         ax.plot(time_col, df[rep].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.22, linewidth=max(0.8, cfg["aux_line_width"]))
     mean_df = fit_pack["mean_profile_df"]
-    ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linestyle='none', label="Observed mean")
+    ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean")
     best = fit_pack["best_model"]
     sub = fit_pack["curve_df"].loc[fit_pack["curve_df"]["Model"] == best]
     ax.plot(sub["Time_input"], sub["Predicted"], linewidth=cfg["line_width"] + 0.9, color=cfg["tertiary_color"], label=f"Fitted {best}")
@@ -1478,7 +1478,7 @@ def plot_deconvolution_pk_fit(pack):
     for col in pack["cp_cols"]:
         ax.plot(t, df[col].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
     mean_df = pack["mean_pk_df"]
-    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linestyle='none', label="Observed mean Cp")
+    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean Cp")
     pred = pack["best_fit"]["yhat"]
     ax.plot(mean_df["Time_input"], pred, color=cfg["tertiary_color"], linewidth=cfg["line_width"] + 0.8, label=f"Fitted {pack['best_model']} Cp")
     apply_ax_style(ax, f"Observed and fitted PK profile ({pack['best_model']})", f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
@@ -1731,7 +1731,7 @@ def plot_ivivc_pk_fit(pack):
     for col in pack["cp_cols"]:
         ax.plot(t, df[col].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
     mean_df = pack["mean_pk_df"]
-    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linestyle='none', label="Observed mean Cp")
+    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean Cp")
     ax.plot(mean_df["Time_input"], pack["fit"]["pred_pack"]["cp_obs"], color=cfg["tertiary_color"], linewidth=cfg["line_width"] + 0.8, label="IVIVC fitted Cp")
     apply_ax_style(ax, f"Observed and IVIVC-fitted PK profile ({pack['saved_invitro_model']})", f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
     return fig
@@ -1762,6 +1762,536 @@ def save_ivivc_to_session(pack):
         "disposition": pack["disposition"],
     }
 
+
+
+def _deconv_model_metadata(model_name):
+    if model_name == "Single Weibull":
+        return ["Fmax", "MDT1_h", "b1"], ["Fmax", "MDT1", "β1"]
+    if model_name == "Double Weibull":
+        return ["Fmax", "f1", "MDT1_h", "b1", "MDT2_h", "b2"], ["Fmax", "f1", "MDT1", "β1", "MDT2", "β2"]
+    return ["Fmax", "f1", "f2", "MDT1_h", "b1", "MDT2_h", "b2", "MDT3_h", "b3"], ["Fmax", "f1", "f2", "MDT1", "β1", "MDT2", "β2", "MDT3", "β3"]
+
+
+def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table=None, progress_callback=None, progress_step=None, progress_total=None, progress_every=10):
+    t_h = np.asarray(t_h, dtype=float)
+    cp = np.asarray(cp, dtype=float)
+    mask = np.isfinite(t_h) & np.isfinite(cp)
+    t_h = t_h[mask]
+    cp = cp[mask]
+    param_names, display_names = _deconv_model_metadata(model_name)
+
+    if parameter_table is None:
+        p0, lb, ub = _deconv_default_bounds(model_name, t_h, cp)
+        fix_mask = np.zeros_like(p0, dtype=bool)
+        editor_long = build_deconv_parameter_tables(t_h, cp)[model_name].copy()
+    else:
+        editor_long = _sanitize_deconv_editor_table(model_name, parameter_table)
+        p0 = editor_long["Initial Value"].to_numpy(dtype=float)
+        lb = editor_long["Min (≥)"].to_numpy(dtype=float)
+        ub = editor_long["Max (≤)"].to_numpy(dtype=float)
+        fix_mask = editor_long["Fix"].to_numpy(dtype=bool)
+
+    free_idx = np.flatnonzero(~fix_mask)
+
+    def _expand_free(x_free, base):
+        full = np.asarray(base, dtype=float).copy()
+        if len(free_idx):
+            full[free_idx] = np.asarray(x_free, dtype=float)
+        return _deconv_param_split(model_name, full)
+
+    progress_state = {"calls": 0, "best_err": np.inf}
+
+    def _emit_progress(err_val):
+        if progress_callback is None:
+            return
+        err_val = float(err_val)
+        if np.isfinite(err_val):
+            progress_state["best_err"] = min(progress_state["best_err"], err_val)
+            msg = f"Fitting {model_name} to the mean PK profile, Error = {progress_state['best_err']:.6g}"
+        else:
+            msg = f"Fitting {model_name} to the mean PK profile, Error = —"
+        progress_callback(0 if progress_step is None else progress_step, 1 if progress_total is None else progress_total, msg)
+
+    best = None
+    starts = _candidate_starts_deconv(model_name, p0, lb, ub)
+    if len(free_idx) == 0:
+        starts = [p0.copy()]
+
+    for start_full in starts:
+        try:
+            if len(free_idx) == 0:
+                params_eval = _deconv_param_split(model_name, start_full)
+                resid = _deconv_residuals(params_eval, t_h, cp, model_name, disposition)
+                _emit_progress(np.sum(np.square(resid)))
+                infer = _deconv_infer_statistics(model_name, t_h, cp, params_eval, lb, ub, disposition)
+            else:
+                start_free = np.asarray(start_full, dtype=float)[free_idx]
+                lb_free = lb[free_idx]
+                ub_free = ub[free_idx]
+
+                def _resid_free(x_free):
+                    resid_local = _deconv_residuals(_expand_free(x_free, start_full), t_h, cp, model_name, disposition)
+                    progress_state["calls"] += 1
+                    if progress_state["calls"] == 1 or progress_state["calls"] % max(int(progress_every), 1) == 0:
+                        _emit_progress(np.sum(np.square(resid_local)))
+                    return resid_local
+
+                res = least_squares(_resid_free, x0=start_free, bounds=(lb_free, ub_free), max_nfev=50000, method="trf")
+                if not res.success:
+                    continue
+                params_eval = _expand_free(res.x, start_full)
+                final_resid = _deconv_residuals(params_eval, t_h, cp, model_name, disposition)
+                _emit_progress(np.sum(np.square(final_resid)))
+                infer = _deconv_infer_statistics(model_name, t_h, cp, params_eval, lb, ub, disposition)
+
+            yhat = infer["yhat"]
+            rss = float(np.sum((cp - yhat) ** 2))
+            n = len(cp)
+            k = int(np.sum(~fix_mask))
+            aic = n * np.log(max(rss, 1e-12) / n) + 2 * k
+            bic = n * np.log(max(rss, 1e-12) / n) + k * np.log(max(n, 1))
+            tss = float(np.sum((cp - np.mean(cp)) ** 2))
+            r2 = 1.0 - rss / tss if tss > 0 else np.nan
+            cand = {
+                "params": np.asarray(params_eval, dtype=float),
+                "param_names": param_names,
+                "display_names": display_names,
+                "init": p0,
+                "lb": lb,
+                "ub": ub,
+                "fix_mask": fix_mask,
+                "editor_table": editor_long.copy(),
+                "aic": float(aic),
+                "bic": float(bic),
+                "rss": rss,
+                "r2": float(r2) if np.isfinite(r2) else np.nan,
+                "se": infer["se"],
+                "t_value": infer["t_value"],
+                "p_value": infer["p_value"],
+                "lcl": infer["lcl"],
+                "ucl": infer["ucl"],
+                "rse_pct": infer["rse_pct"],
+                "yhat": yhat,
+                "pred_pack": infer["pred_pack"],
+            }
+            if (best is None) or (cand["aic"] < best["aic"]):
+                best = cand
+        except Exception:
+            continue
+    if best is None:
+        raise ValueError(f"{model_name} PK deconvolution-through-convolution fit did not converge.")
+    return best
+
+
+def simulate_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table=None):
+    t_h = np.asarray(t_h, dtype=float)
+    cp = np.asarray(cp, dtype=float)
+    mask = np.isfinite(t_h) & np.isfinite(cp)
+    t_h = t_h[mask]
+    cp = cp[mask]
+    param_names, display_names = _deconv_model_metadata(model_name)
+
+    if parameter_table is None:
+        p0, lb, ub = _deconv_default_bounds(model_name, t_h, cp)
+        fix_mask = np.zeros_like(p0, dtype=bool)
+        editor_long = build_deconv_parameter_tables(t_h, cp)[model_name].copy()
+    else:
+        editor_long = _sanitize_deconv_editor_table(model_name, parameter_table)
+        p0 = editor_long["Initial Value"].to_numpy(dtype=float)
+        lb = editor_long["Min (≥)"].to_numpy(dtype=float)
+        ub = editor_long["Max (≤)"].to_numpy(dtype=float)
+        fix_mask = editor_long["Fix"].to_numpy(dtype=bool)
+
+    params_eval = _deconv_param_split(model_name, p0)
+    pred_pack = _deconv_predict_pk(model_name, t_h, params_eval, disposition)
+    yhat = pred_pack["cp_obs"]
+    rss = float(np.sum((cp - yhat) ** 2))
+    n = len(cp)
+    k = max(int(np.sum(~fix_mask)), 1)
+    aic = n * np.log(max(rss, 1e-12) / max(n, 1)) + 2 * k
+    bic = n * np.log(max(rss, 1e-12) / max(n, 1)) + k * np.log(max(n, 1))
+    tss = float(np.sum((cp - np.mean(cp)) ** 2))
+    r2 = 1.0 - rss / tss if tss > 0 else np.nan
+    nan_vec = np.full(len(params_eval), np.nan)
+    return {
+        "params": np.asarray(params_eval, dtype=float),
+        "param_names": param_names,
+        "display_names": display_names,
+        "init": p0,
+        "lb": lb,
+        "ub": ub,
+        "fix_mask": fix_mask,
+        "editor_table": editor_long.copy(),
+        "aic": float(aic),
+        "bic": float(bic),
+        "rss": rss,
+        "r2": float(r2) if np.isfinite(r2) else np.nan,
+        "se": nan_vec.copy(),
+        "t_value": nan_vec.copy(),
+        "p_value": nan_vec.copy(),
+        "lcl": nan_vec.copy(),
+        "ucl": nan_vec.copy(),
+        "rse_pct": nan_vec.copy(),
+        "yhat": yhat,
+        "pred_pack": pred_pack,
+    }
+
+
+def fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_tables=None, model_choice=None, progress_callback=None):
+    factor = TIME_UNIT_TO_HOURS[time_unit_label]
+    t_in = pk_df["Time_input"].to_numpy(dtype=float)
+    t_h = t_in * factor
+    cp_cols = [c for c in pk_df.columns if c != "Time_input"]
+    mean_cp = pk_df[cp_cols].mean(axis=1, skipna=True).to_numpy(dtype=float)
+    selected_models = _resolve_model_choices(model_choice)
+    results = []
+    fits = {}
+    total_steps = max(1, len(selected_models) + 2)
+    step = 0
+    _progress_update(progress_callback, step, total_steps, "Preparing PK study summaries")
+    pk_tables = build_pk_study_tables(pk_df, time_unit_label, disposition["cp_unit"])
+    for model_name in selected_models:
+        step += 1
+        _progress_update(progress_callback, step, total_steps, f"Fitting {model_name} to the mean PK profile, Error = —")
+        fit = fit_pk_deconvolution_model(
+            t_h,
+            mean_cp,
+            model_name,
+            disposition,
+            parameter_table=(None if parameter_tables is None else parameter_tables.get(model_name)),
+            progress_callback=progress_callback,
+            progress_step=step,
+            progress_total=total_steps,
+        )
+        fits[model_name] = fit
+        results.append({"Model": model_name, "AIC": fit["aic"], "BIC": fit["bic"], "RSS": fit["rss"], "R²": fit["r2"]})
+    summary_df = pd.DataFrame(results).sort_values("AIC").reset_index(drop=True)
+    best_model = summary_df.iloc[0]["Model"]
+    best_fit = fits[best_model]
+    step += 1
+    _progress_update(progress_callback, step, total_steps, f"Summarizing best PK deconvolution model ({best_model})")
+    if disposition["compartments"] == 1:
+        wn = wagner_nelson_fraction(t_h, mean_cp, disposition["k10"])
+    else:
+        wn = np.full_like(t_h, np.nan, dtype=float)
+    detail_rows = []
+    for idx, pname in enumerate(best_fit["display_names"]):
+        detail_rows.append({"Parameter": pname, "Estimate": best_fit["params"][idx], "S.E.": best_fit["se"][idx], "R.S.E (%)": best_fit["rse_pct"][idx], "t-Value": best_fit["t_value"][idx], "p-Value": best_fit["p_value"][idx], "95% LCL": best_fit["lcl"][idx], "95% UCL": best_fit["ucl"][idx]})
+    disp_df = pd.DataFrame([{
+        "Compartments": disposition["compartments"], "Dose": disposition["dose_value"], "Dose units": disposition["dose_unit"], "V": disposition["V_value"], "V units": disposition["V_unit"], "Cp units": disposition["cp_unit"], "BIO": disposition["bio"],
+        "k10": disposition["k10"], "k12": disposition.get("k12", 0.0), "k21": disposition.get("k21", 0.0), "k13": disposition.get("k13", 0.0), "k31": disposition.get("k31", 0.0),
+    }])
+    return {
+        "input_df": pk_df.copy(), "time_factor": factor, "time_unit_label": time_unit_label, "cp_cols": cp_cols,
+        "mean_pk_df": pd.DataFrame({"Time_input": t_in, "Time_h": t_h, "Mean Cp": mean_cp}),
+        "summary_df": summary_df, "best_model": best_model, "best_fit": best_fit, "parameter_df": pd.DataFrame(detail_rows),
+        "wn_df": pd.DataFrame({"Time_input": t_in, "Time_h": t_h, "Wagner-Nelson fraction": wn}),
+        "disposition": disposition, "disposition_df": disp_df,
+        "pk_individual_df": pk_tables["individual_df"], "pk_mean_summary_df": pk_tables["mean_summary_df"], "pk_mean_profile_df": pk_tables["mean_profile_df"],
+        "model_names": selected_models,
+        "parameter_tables_used": {m: fits[m].get("editor_table") for m in selected_models if m in fits},
+        "result_mode": "fit",
+    }
+
+
+def simulate_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_tables=None, model_choice=None, progress_callback=None):
+    factor = TIME_UNIT_TO_HOURS[time_unit_label]
+    t_in = pk_df["Time_input"].to_numpy(dtype=float)
+    t_h = t_in * factor
+    cp_cols = [c for c in pk_df.columns if c != "Time_input"]
+    mean_cp = pk_df[cp_cols].mean(axis=1, skipna=True).to_numpy(dtype=float)
+    selected_models = _resolve_model_choices(model_choice)
+    results = []
+    fits = {}
+    total_steps = max(1, len(selected_models) + 1)
+    step = 0
+    _progress_update(progress_callback, step, total_steps, "Applying current parameter values to the PK model")
+    pk_tables = build_pk_study_tables(pk_df, time_unit_label, disposition["cp_unit"])
+    for model_name in selected_models:
+        step += 1
+        fit = simulate_pk_deconvolution_model(t_h, mean_cp, model_name, disposition, parameter_table=(None if parameter_tables is None else parameter_tables.get(model_name)))
+        fits[model_name] = fit
+        _progress_update(progress_callback, step, total_steps, f"Applying {model_name} initial values, Error = {fit['rss']:.6g}")
+        results.append({"Model": model_name, "AIC": fit["aic"], "BIC": fit["bic"], "RSS": fit["rss"], "R²": fit["r2"]})
+    summary_df = pd.DataFrame(results).sort_values(["RSS", "AIC"]).reset_index(drop=True)
+    best_model = summary_df.iloc[0]["Model"]
+    best_fit = fits[best_model]
+    if disposition["compartments"] == 1:
+        wn = wagner_nelson_fraction(t_h, mean_cp, disposition["k10"])
+    else:
+        wn = np.full_like(t_h, np.nan, dtype=float)
+    disp_df = pd.DataFrame([{
+        "Compartments": disposition["compartments"], "Dose": disposition["dose_value"], "Dose units": disposition["dose_unit"], "V": disposition["V_value"], "V units": disposition["V_unit"], "Cp units": disposition["cp_unit"], "BIO": disposition["bio"],
+        "k10": disposition["k10"], "k12": disposition.get("k12", 0.0), "k21": disposition.get("k21", 0.0), "k13": disposition.get("k13", 0.0), "k31": disposition.get("k31", 0.0),
+    }])
+    return {
+        "input_df": pk_df.copy(), "time_factor": factor, "time_unit_label": time_unit_label, "cp_cols": cp_cols,
+        "mean_pk_df": pd.DataFrame({"Time_input": t_in, "Time_h": t_h, "Mean Cp": mean_cp}),
+        "summary_df": summary_df, "best_model": best_model, "best_fit": best_fit,
+        "parameter_df": best_fit["editor_table"].copy(),
+        "wn_df": pd.DataFrame({"Time_input": t_in, "Time_h": t_h, "Wagner-Nelson fraction": wn}),
+        "disposition": disposition, "disposition_df": disp_df,
+        "pk_individual_df": pk_tables["individual_df"], "pk_mean_summary_df": pk_tables["mean_summary_df"], "pk_mean_profile_df": pk_tables["mean_profile_df"],
+        "model_names": selected_models,
+        "parameter_tables_used": {m: fits[m].get("editor_table") for m in selected_models if m in fits},
+        "result_mode": "initial_test",
+    }
+
+
+def plot_deconvolution_pk_fit(pack):
+    cfg = safe_get_plot_cfg("Dissolution comparison")
+    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+    df = pack["input_df"]
+    t = df["Time_input"].to_numpy(dtype=float)
+    for col in pack["cp_cols"]:
+        ax.plot(t, df[col].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
+    mean_df = pack["mean_pk_df"]
+    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean Cp")
+    mode = pack.get("result_mode", "fit")
+    curve_label = f"{pack['best_model']} initial-test Cp" if mode == "initial_test" else f"Fitted {pack['best_model']} Cp"
+    title = f"Observed and initial-test PK profile ({pack['best_model']})" if mode == "initial_test" else f"Observed and fitted PK profile ({pack['best_model']})"
+    pred = pack["best_fit"]["yhat"]
+    ax.plot(mean_df["Time_input"], pred, color=cfg["tertiary_color"], linewidth=cfg["line_width"] + 0.8, label=curve_label)
+    apply_ax_style(ax, title, f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
+    return fig
+
+
+def plot_deconvoluted_profile(pack):
+    cfg = safe_get_plot_cfg("Dissolution comparison")
+    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+    pred_pack = pack["best_fit"]["pred_pack"]
+    if pack["disposition"]["compartments"] == 1 and np.isfinite(pack["wn_df"]["Wagner-Nelson fraction"]).any():
+        wn = pack["wn_df"].copy()
+        ax.plot(wn["Time_input"], wn["Wagner-Nelson fraction"] * 100.0, marker="o", linestyle="None", color=cfg["primary_color"], label="Wagner–Nelson reference")
+    mode = pack.get("result_mode", "fit")
+    curve_label = f"{pack['best_model']} initial-test release" if mode == "initial_test" else f"Recovered {pack['best_model']} release"
+    title = f"Release profile from current initial values ({pack['best_model']})" if mode == "initial_test" else f"Recovered in vivo release profile ({pack['best_model']})"
+    ax.plot(pred_pack["t_grid_h"] / pack["time_factor"], pred_pack["cumfrac_grid"] * 100.0, color=cfg["tertiary_color"], linewidth=cfg["line_width"] + 0.8, label=curve_label)
+    apply_ax_style(ax, title, f"Time ({pack['time_unit_label']})", "% released / absorbed", legend=True, plot_key="Dissolution comparison")
+    return fig
+
+
+def _render_deconvolution_tool():
+    app_header("🧬 Deconvolution through convolution", "Fit single-, double-, and triple-Weibull in vivo release models directly to PK data through the analytical ODE workflow, choose the best model by AIC, and optionally save it in-session as InVivoFit.")
+    _reset_deconv_editor_state(force=False)
+
+    c1, c2, c3 = st.columns([1, 1, 6])
+    with c1:
+        st.button("Sample Data", key="sample_pk_deconv", on_click=load_pk_deconv_sample)
+    with c2:
+        if st.button("Reset Tables", key="reset_pk_deconv_tables"):
+            _reset_deconv_editor_state(force=True)
+            st.session_state.pop("deconv_last_pack", None)
+            st.session_state.pop("deconv_last_initial_pack", None)
+    with c3:
+        pk_text = st.text_area("PK table (first column = time, remaining columns = one or more Cp profiles)", height=260, key="pk_input_deconv")
+
+    top1 = st.columns(6)
+    with top1[0]:
+        time_unit_label = st.selectbox("Time units", ["Minutes", "Hours", "Days"], index=1, key="deconv_time_units")
+    with top1[1]:
+        cp_unit = st.selectbox("Cp units", list(CP_MG_PER_L_TO_UNIT.keys()), index=2, key="deconv_cp_units")
+    with top1[2]:
+        compartments = st.selectbox("Compartments", [1, 2, 3], index=2, key="deconv_compartments")
+    with top1[3]:
+        dose_value = st.number_input("Dose", min_value=0.000001, value=6666666.600, format="%.6f", key="deconv_dose_value")
+    with top1[4]:
+        dose_unit = st.selectbox("Dose units", list(DOSE_UNIT_TO_MG.keys()), index=0, key="deconv_dose_unit")
+    with top1[5]:
+        model_choice = st.selectbox("Weibull model(s)", MODEL_CHOICE_OPTIONS, index=3, key="deconv_model_choice")
+
+    top2 = st.columns(6)
+    with top2[0]:
+        v_value = st.number_input("V", min_value=0.000001, value=1136.900, format="%.6f", key="deconv_v_value")
+    with top2[1]:
+        v_unit = st.selectbox("V units", list(VOLUME_UNIT_TO_L.keys()), index=1, key="deconv_v_unit")
+    with top2[2]:
+        k10 = st.number_input("k10 (1/h)", min_value=0.000001, value=0.770000, format="%.6f", key="deconv_k10")
+    with top2[3]:
+        k12 = st.number_input("k12 (1/h)", min_value=0.0, value=1.382000, format="%.6f", key="deconv_k12", disabled=compartments < 2)
+    with top2[4]:
+        k21 = st.number_input("k21 (1/h)", min_value=0.0, value=1.814000, format="%.6f", key="deconv_k21", disabled=compartments < 2)
+    with top2[5]:
+        decimals = st.slider("Decimals", 1, 8, 3, key="deconv_decimals")
+
+    top3 = st.columns(6)
+    with top3[0]:
+        k13 = st.number_input("k13 (1/h)", min_value=0.0, value=1.000000, format="%.6f", key="deconv_k13", disabled=compartments < 3)
+    with top3[1]:
+        k31 = st.number_input("k31 (1/h)", min_value=0.0, value=0.000000, format="%.6f", key="deconv_k31", disabled=compartments < 3)
+    with top3[2]:
+        run_initial_test = st.button("Initial Test (No Fit)", key="run_deconv_initial_test")
+    with top3[3]:
+        run_deconv = st.button("Run Deconvolution Fit", type="primary", key="run_deconv_fit")
+    with top3[4]:
+        st.empty()
+    with top3[5]:
+        st.empty()
+
+    st.caption("The selected input time unit is converted internally so all fitting and stored parameters are in hours. During fitting, the status line now updates with the current best error so the user can see that the optimizer is moving. 'Initial Test (No Fit)' applies the current table values directly and plots the resulting profile without optimization.")
+
+    parameter_tables = {}
+    with st.expander("Parameter bounds, starting values, and fixed parameters", expanded=True):
+        st.write("Edit the starting values, bounds, and fixed-parameter flags for each Weibull model. MDT values are always handled in hours.")
+        for model_name in MODEL_SPECS:
+            st.markdown(f"**{model_name}**")
+            table_key = _deconv_editor_state_key(model_name)
+            current_df = st.session_state.get(table_key, build_deconv_parameter_tables(np.asarray([0.0, 1.0]), np.asarray([0.0, 1.0]))[model_name]).copy()
+            edited_df = st.data_editor(
+                current_df,
+                key=f"deconv_editor_{_slugify(model_name)}",
+                hide_index=True,
+                num_rows="fixed",
+                use_container_width=True,
+                disabled=["Parameter"],
+                column_config={
+                    "Parameter": st.column_config.TextColumn("Parameter", disabled=True),
+                    "Initial Value": st.column_config.NumberColumn("Initial Value", format="%.6f"),
+                    "Min (≥)": st.column_config.NumberColumn("Min (≥)", format="%.6f"),
+                    "Max (≤)": st.column_config.NumberColumn("Max (≤)", format="%.6f"),
+                    "Fix": st.column_config.CheckboxColumn("Fix"),
+                },
+            )
+            st.session_state[table_key] = pd.DataFrame(edited_df)
+            parameter_tables[model_name] = st.session_state[table_key].copy()
+
+    action_triggered = run_initial_test or run_deconv
+    if action_triggered:
+        if not pk_text or not str(pk_text).strip():
+            st.warning("Please provide PK data or press 'Sample Data' first.")
+            if run_initial_test:
+                st.session_state.pop("deconv_last_initial_pack", None)
+            if run_deconv:
+                st.session_state.pop("deconv_last_pack", None)
+        else:
+            try:
+                pk_df = parse_pk_profile_table(pk_text)
+                disposition = _build_disposition_config(compartments, dose_value, dose_unit, v_value, v_unit, cp_unit, k10, k12, k21, k13, k31, bio=1.0)
+                progress_holder = st.empty()
+                status_holder = st.empty()
+                progress_bar = progress_holder.progress(0)
+
+                def _cb(step, total, msg):
+                    progress_bar.progress(max(0.0, min(1.0, float(step) / max(float(total), 1.0))))
+                    status_holder.caption(msg)
+
+                if run_initial_test:
+                    initial_pack = simulate_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_tables=parameter_tables, model_choice=model_choice, progress_callback=_cb)
+                    st.session_state["deconv_last_initial_pack"] = initial_pack
+                    progress_bar.progress(1.0)
+                    status_holder.caption(f"Finished initial test. Lowest current error: {initial_pack['summary_df'].iloc[0]['RSS']:.6g} ({initial_pack['best_model']}).")
+                if run_deconv:
+                    pack = fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_tables=parameter_tables, model_choice=model_choice, progress_callback=_cb)
+                    st.session_state["deconv_last_pack"] = pack
+                    progress_bar.progress(1.0)
+                    status_holder.caption(f"Finished PK deconvolution fit. Best model: {pack['best_model']}.")
+            except Exception as e:
+                if run_initial_test:
+                    st.session_state.pop("deconv_last_initial_pack", None)
+                if run_deconv:
+                    st.session_state.pop("deconv_last_pack", None)
+                st.error(str(e))
+
+    initial_pack = st.session_state.get("deconv_last_initial_pack")
+    fit_pack = st.session_state.get("deconv_last_pack")
+
+    tab_names = []
+    if initial_pack is not None:
+        tab_names.append("Initial test")
+    if fit_pack is not None:
+        tab_names.append("PK study")
+        tab_names.append("Save model")
+
+    if not tab_names:
+        return
+
+    tabs = st.tabs(tab_names)
+    tab_idx = 0
+    if initial_pack is not None:
+        with tabs[tab_idx]:
+            fig_pk_init = plot_deconvolution_pk_fit(initial_pack)
+            fig_rel_init = plot_deconvoluted_profile(initial_pack)
+            fig_mean_init = plot_pk_mean_profile_errorbars(initial_pack, title="PK mean profile with error bars")
+            fig_ind_init = plot_pk_individual_profiles(initial_pack, title="Individual PK profiles")
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Best current model", initial_pack["best_model"])
+            m2.metric("Current RSS", f"{initial_pack['summary_df'].iloc[0]['RSS']:.{decimals}f}")
+            m3.metric("Current AIC", f"{initial_pack['summary_df'].iloc[0]['AIC']:.{decimals}f}")
+            inp = initial_pack["input_df"].copy()
+            inp.insert(1, "Time_h", inp["Time_input"] * initial_pack["time_factor"])
+            report_table(inp, "Input PK data used for the initial test", decimals)
+            report_table(initial_pack["pk_individual_df"], "Individual-subject PK summary", decimals)
+            report_table(initial_pack["pk_mean_summary_df"], "Mean PK summary across profiles", decimals)
+            report_table(initial_pack["pk_mean_profile_df"], "PK mean profile with SD and SE", decimals)
+            report_table(initial_pack["disposition_df"], "Disposition system used to generate the initial-test PK profile", decimals)
+            report_table(initial_pack["summary_df"], "Current-model comparison using the parameter values in the table (no fitting)", decimals)
+            report_table(initial_pack["parameter_df"], f"Current parameter values used for the best initial-test model ({initial_pack['best_model']})", decimals)
+            show_figure(fig_ind_init, caption="Individual PK profiles")
+            show_figure(fig_mean_init, caption="PK mean profile with error bars")
+            show_figure(fig_pk_init, caption=f"Observed and initial-test PK profile for {initial_pack['best_model']}")
+            show_figure(fig_rel_init, caption="Release profile generated from the current initial values")
+        tab_idx += 1
+
+    if fit_pack is not None:
+        with tabs[tab_idx]:
+            fig_pk = plot_deconvolution_pk_fit(fit_pack)
+            fig_deconv = plot_deconvoluted_profile(fit_pack)
+            fig_mean_pk = plot_pk_mean_profile_errorbars(fit_pack, title="PK mean profile with error bars")
+            fig_individual_pk = plot_pk_individual_profiles(fit_pack, title="Individual PK profiles")
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Best model", fit_pack["best_model"])
+            m2.metric("Best AIC", f"{fit_pack['summary_df'].iloc[0]['AIC']:.{decimals}f}")
+            m3.metric("Saved model key", "InVivoFit")
+            inp = fit_pack["input_df"].copy()
+            inp.insert(1, "Time_h", inp["Time_input"] * fit_pack["time_factor"])
+            report_table(inp, "Input PK data used in the convolution-through-ODE fit", decimals)
+            report_table(fit_pack["pk_individual_df"], "Individual-subject PK summary", decimals)
+            report_table(fit_pack["pk_mean_summary_df"], "Mean PK summary across profiles", decimals)
+            report_table(fit_pack["pk_mean_profile_df"], "PK mean profile with SD and SE", decimals)
+            report_table(fit_pack["disposition_df"], "Disposition system used to generate the PK profile", decimals)
+            report_table(fit_pack["summary_df"], "AIC comparison for the selected Weibull release models", decimals)
+            report_table(fit_pack["parameter_df"], f"Parameter estimates for the best model ({fit_pack['best_model']})", decimals)
+            show_figure(fig_individual_pk, caption="Individual PK profiles")
+            show_figure(fig_mean_pk, caption="PK mean profile with error bars")
+            show_figure(fig_pk, caption=f"Observed and fitted PK profile for the best model ({fit_pack['best_model']})")
+            show_figure(fig_deconv, caption="Recovered in vivo release profile for the best model")
+            table_map = {
+                "Input PK Data": fit_pack["input_df"].assign(Time_h=fit_pack["input_df"]["Time_input"] * fit_pack["time_factor"]),
+                "Individual PK Summary": fit_pack["pk_individual_df"],
+                "Mean PK Summary": fit_pack["pk_mean_summary_df"],
+                "PK Mean Profile": fit_pack["pk_mean_profile_df"],
+                "Disposition System": fit_pack["disposition_df"],
+                "Model Comparison": fit_pack["summary_df"],
+                f"Best Model Parameters ({fit_pack['best_model']})": fit_pack["parameter_df"],
+                "Recovered Release Reference": fit_pack["wn_df"],
+            }
+            figure_map = {
+                "Individual PK profiles": fig_to_png_bytes(fig_individual_pk),
+                "PK mean profile with error bars": fig_to_png_bytes(fig_mean_pk),
+                f"Observed and fitted PK profile ({fit_pack['best_model']})": fig_to_png_bytes(fig_pk),
+                "Recovered in vivo release profile": fig_to_png_bytes(fig_deconv),
+            }
+            export_results(
+                prefix="ivivc_deconvolution_through_convolution",
+                report_title="Statistical Analysis Report",
+                module_name="Deconvolution through convolution",
+                statistical_analysis="Single-, double-, and triple-Weibull in vivo release functions were fitted directly to the PK data. The analytical Weibull input-rate was used directly in the compartment ODE system together with the user-supplied microconstants, dose, and V.",
+                offer_text="This module recovers a practical in vivo release function from PK data without first performing a separate standalone deconvolution step.",
+                python_tools="pandas, numpy, scipy.optimize.least_squares, scipy.integrate.solve_ivp, scipy.stats, matplotlib, openpyxl, reportlab",
+                table_map=table_map,
+                figure_map=figure_map,
+                conclusion=f"The best convolution-based in vivo release model by AIC was {fit_pack['best_model']}. Review the fitted PK graph and the recovered release profile before saving the model downstream.",
+                decimals=decimals,
+            )
+        tab_idx += 1
+
+        with tabs[tab_idx]:
+            if st.button("Save best model as InVivoFit", key="save_invivofit_button"):
+                save_invivofit_to_session(fit_pack)
+                st.success("The best convolution-based in vivo release model was saved in this session as InVivoFit.")
+            if "InVivoFit" in st.session_state:
+                current = st.session_state["InVivoFit"]
+                st.info(f"Current saved in-session model: {current.get('name', 'InVivoFit')} ({current.get('model', '-')}, stored in hours).")
 
 def render():
     render_display_settings()
@@ -1936,174 +2466,7 @@ def render():
                 st.error(str(e))
 
     elif tool == "🧬 Deconvolution through convolution":
-        app_header("🧬 Deconvolution through convolution", "Fit single-, double-, and triple-Weibull in vivo release models directly to PK data through the analytical ODE workflow, choose the best model by AIC, and optionally save it in-session as InVivoFit.")
-        _reset_deconv_editor_state(force=False)
-
-        c1, c2, c3 = st.columns([1, 1, 6])
-        with c1:
-            st.button("Sample Data", key="sample_pk_deconv", on_click=load_pk_deconv_sample)
-        with c2:
-            if st.button("Reset Tables", key="reset_pk_deconv_tables"):
-                _reset_deconv_editor_state(force=True)
-                st.session_state.pop("deconv_last_pack", None)
-        with c3:
-            pk_text = st.text_area("PK table (first column = time, remaining columns = one or more Cp profiles)", height=260, key="pk_input_deconv")
-
-        top1 = st.columns(6)
-        with top1[0]:
-            time_unit_label = st.selectbox("Time units", ["Minutes", "Hours", "Days"], index=1, key="deconv_time_units")
-        with top1[1]:
-            cp_unit = st.selectbox("Cp units", list(CP_MG_PER_L_TO_UNIT.keys()), index=2, key="deconv_cp_units")
-        with top1[2]:
-            compartments = st.selectbox("Compartments", [1, 2, 3], index=2, key="deconv_compartments")
-        with top1[3]:
-            dose_value = st.number_input("Dose", min_value=0.000001, value=6666666.600, format="%.6f", key="deconv_dose_value")
-        with top1[4]:
-            dose_unit = st.selectbox("Dose units", list(DOSE_UNIT_TO_MG.keys()), index=0, key="deconv_dose_unit")
-        with top1[5]:
-            model_choice = st.selectbox("Weibull model(s)", MODEL_CHOICE_OPTIONS, index=3, key="deconv_model_choice")
-
-        top2 = st.columns(6)
-        with top2[0]:
-            v_value = st.number_input("V", min_value=0.000001, value=1136.900, format="%.6f", key="deconv_v_value")
-        with top2[1]:
-            v_unit = st.selectbox("V units", list(VOLUME_UNIT_TO_L.keys()), index=1, key="deconv_v_unit")
-        with top2[2]:
-            k10 = st.number_input("k10 (1/h)", min_value=0.000001, value=0.770000, format="%.6f", key="deconv_k10")
-        with top2[3]:
-            k12 = st.number_input("k12 (1/h)", min_value=0.0, value=1.382000, format="%.6f", key="deconv_k12", disabled=compartments < 2)
-        with top2[4]:
-            k21 = st.number_input("k21 (1/h)", min_value=0.0, value=1.814000, format="%.6f", key="deconv_k21", disabled=compartments < 2)
-        with top2[5]:
-            decimals = st.slider("Decimals", 1, 8, 3, key="deconv_decimals")
-
-        top3 = st.columns(6)
-        with top3[0]:
-            k13 = st.number_input("k13 (1/h)", min_value=0.0, value=1.000000, format="%.6f", key="deconv_k13", disabled=compartments < 3)
-        with top3[1]:
-            k31 = st.number_input("k31 (1/h)", min_value=0.0, value=0.000000, format="%.6f", key="deconv_k31", disabled=compartments < 3)
-        with top3[2]:
-            run_deconv = st.button("Run Deconvolution Fit", type="primary", key="run_deconv_fit")
-        with top3[3]:
-            st.empty()
-        with top3[4]:
-            st.empty()
-        with top3[5]:
-            st.empty()
-
-        st.caption("The selected input time unit is converted internally so all fitting and stored parameters are in hours. The PK model uses the analytical Weibull input-rate directly in the compartment ODE system. The default sample data, microconstants, dose, volume, and starting values match the values you provided for quick checking.")
-
-        parameter_tables = {}
-        with st.expander("Parameter bounds, starting values, and fixed parameters", expanded=True):
-            st.write("Edit the starting values, bounds, and fixed-parameter flags for each Weibull model. MDT values are always handled in hours.")
-            for model_name in MODEL_SPECS:
-                st.markdown(f"**{model_name}**")
-                table_key = _deconv_editor_state_key(model_name)
-                current_df = st.session_state.get(table_key, build_deconv_parameter_tables(np.asarray([0.0, 1.0]), np.asarray([0.0, 1.0]))[model_name]).copy()
-                edited_df = st.data_editor(
-                    current_df,
-                    key=f"deconv_editor_{_slugify(model_name)}",
-                    hide_index=True,
-                    num_rows="fixed",
-                    use_container_width=True,
-                    disabled=["Parameter"],
-                    column_config={
-                        "Parameter": st.column_config.TextColumn("Parameter", disabled=True),
-                        "Initial Value": st.column_config.NumberColumn("Initial Value", format="%.6f"),
-                        "Min (≥)": st.column_config.NumberColumn("Min (≥)", format="%.6f"),
-                        "Max (≤)": st.column_config.NumberColumn("Max (≤)", format="%.6f"),
-                        "Fix": st.column_config.CheckboxColumn("Fix"),
-                    },
-                )
-                st.session_state[table_key] = pd.DataFrame(edited_df)
-                parameter_tables[model_name] = st.session_state[table_key].copy()
-
-        if run_deconv:
-            if not pk_text or not str(pk_text).strip():
-                st.warning("Please provide PK data or press 'Sample Data' first.")
-                st.session_state.pop("deconv_last_pack", None)
-            else:
-                try:
-                    pk_df = parse_pk_profile_table(pk_text)
-                    disposition = _build_disposition_config(compartments, dose_value, dose_unit, v_value, v_unit, cp_unit, k10, k12, k21, k13, k31, bio=1.0)
-                    progress_holder = st.empty()
-                    status_holder = st.empty()
-                    progress_bar = progress_holder.progress(0)
-
-                    def _cb(step, total, msg):
-                        progress_bar.progress(max(0.0, min(1.0, float(step) / max(float(total), 1.0))))
-                        status_holder.caption(msg)
-
-                    pack = fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_tables=parameter_tables, model_choice=model_choice, progress_callback=_cb)
-                    st.session_state["deconv_last_pack"] = pack
-                    progress_bar.progress(1.0)
-                    status_holder.caption(f"Finished PK deconvolution fit. Best model: {pack['best_model']}.")
-                except Exception as e:
-                    st.session_state.pop("deconv_last_pack", None)
-                    st.error(str(e))
-
-        pack = st.session_state.get("deconv_last_pack")
-        if pack is not None:
-            fig_pk = plot_deconvolution_pk_fit(pack)
-            fig_deconv = plot_deconvoluted_profile(pack)
-            fig_mean_pk = plot_pk_mean_profile_errorbars(pack, title="PK mean profile with error bars")
-            fig_individual_pk = plot_pk_individual_profiles(pack, title="Individual PK profiles")
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Best model", pack["best_model"])
-            m2.metric("Best AIC", f"{pack['summary_df'].iloc[0]['AIC']:.{decimals}f}")
-            m3.metric("Saved model key", "InVivoFit")
-
-            t1, t2 = st.tabs(["PK study", "Save model"])
-            with t1:
-                inp = pack["input_df"].copy()
-                inp.insert(1, "Time_h", inp["Time_input"] * pack["time_factor"])
-                report_table(inp, "Input PK data used in the convolution-through-ODE fit", decimals)
-                report_table(pack["pk_individual_df"], "Individual-subject PK summary", decimals)
-                report_table(pack["pk_mean_summary_df"], "Mean PK summary across profiles", decimals)
-                report_table(pack["pk_mean_profile_df"], "PK mean profile with SD and SE", decimals)
-                report_table(pack["disposition_df"], "Disposition system used to generate the PK profile", decimals)
-                report_table(pack["summary_df"], "AIC comparison for the selected Weibull release models", decimals)
-                report_table(pack["parameter_df"], f"Parameter estimates for the best model ({pack['best_model']})", decimals)
-                show_figure(fig_individual_pk, caption="Individual PK profiles")
-                show_figure(fig_mean_pk, caption="PK mean profile with error bars")
-                show_figure(fig_pk, caption=f"Observed and fitted PK profile for the best model ({pack['best_model']})")
-                show_figure(fig_deconv, caption="Recovered in vivo release profile for the best model")
-            with t2:
-                if st.button("Save best model as InVivoFit", key="save_invivofit_button"):
-                    save_invivofit_to_session(pack)
-                    st.success("The best convolution-based in vivo release model was saved in this session as InVivoFit.")
-                if "InVivoFit" in st.session_state:
-                    current = st.session_state["InVivoFit"]
-                    st.info(f"Current saved in-session model: {current.get('name', 'InVivoFit')} ({current.get('model', '-')}, stored in hours).")
-
-            table_map = {
-                "Input PK Data": pack["input_df"].assign(Time_h=pack["input_df"]["Time_input"] * pack["time_factor"]),
-                "Individual PK Summary": pack["pk_individual_df"],
-                "Mean PK Summary": pack["pk_mean_summary_df"],
-                "PK Mean Profile": pack["pk_mean_profile_df"],
-                "Disposition System": pack["disposition_df"],
-                "Model Comparison": pack["summary_df"],
-                f"Best Model Parameters ({pack['best_model']})": pack["parameter_df"],
-                "Recovered Release Reference": pack["wn_df"],
-            }
-            figure_map = {
-                "Individual PK profiles": fig_to_png_bytes(fig_individual_pk),
-                "PK mean profile with error bars": fig_to_png_bytes(fig_mean_pk),
-                f"Observed and fitted PK profile ({pack['best_model']})": fig_to_png_bytes(fig_pk),
-                "Recovered in vivo release profile": fig_to_png_bytes(fig_deconv),
-            }
-            export_results(
-                prefix="ivivc_deconvolution_through_convolution",
-                report_title="Statistical Analysis Report",
-                module_name="Deconvolution through convolution",
-                statistical_analysis="Single-, double-, and triple-Weibull in vivo release functions were fitted directly to the PK data. The analytical Weibull input-rate was used directly in the compartment ODE system together with the user-supplied microconstants, dose, and V.",
-                offer_text="This module recovers a practical in vivo release function from PK data without first performing a separate standalone deconvolution step.",
-                python_tools="pandas, numpy, scipy.optimize.least_squares, scipy.integrate.solve_ivp, scipy.stats, matplotlib, openpyxl, reportlab",
-                table_map=table_map,
-                figure_map=figure_map,
-                conclusion=f"The best convolution-based in vivo release model by AIC was {pack['best_model']}. Review the fitted PK graph and the recovered release profile before saving the model downstream.",
-                decimals=decimals,
-            )
+        _render_deconvolution_tool()
     elif tool == "🔗 IVIVC":
         app_header("🔗 IVIVC", "Apply the paper/code IVIVC time-scaling workflow to a saved InVitroFit model, generate KAB by finite difference, and predict PK with the compartment ODE system using user-supplied microconstants, dose, and V.")
         if "InVitroFit" not in st.session_state:
