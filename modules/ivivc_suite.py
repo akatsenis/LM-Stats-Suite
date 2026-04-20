@@ -2142,7 +2142,7 @@ def render():
             pk_text = st.text_area("PK table (first column = time, remaining columns = one or more Cp profiles)", height=260, key="pk_input_deconv")
         u1, u2, u3 = st.columns([1, 1, 1])
         with u1:
-            time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=0, key="deconv_time_units")
+            time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=1, key="deconv_time_units")
         with u2:
             cp_unit = st.selectbox("Cp units", list(CP_MG_PER_L_TO_UNIT.keys()), index=1, key="deconv_cp_units")
         with u3:
