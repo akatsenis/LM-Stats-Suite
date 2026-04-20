@@ -181,6 +181,49 @@ def _render_saved_model_statuses():
         st.sidebar.markdown('In Vivo Profile Saved —')
 
 
+def _saved_invivo_pk_text(saved_invivo):
+    if not saved_invivo:
+        return ""
+    t_h = np.asarray(saved_invivo.get("mean_pk_time_h", []), dtype=float)
+    cp = np.asarray(saved_invivo.get("mean_pk_cp", []), dtype=float)
+    if len(t_h) < 2 or len(t_h) != len(cp):
+        return ""
+    rows = ["Time\tCp"]
+    for t, c in zip(t_h, cp):
+        if np.isfinite(t) and np.isfinite(c):
+            rows.append(f"{t:g}\t{c:g}")
+    return "\n".join(rows)
+
+
+def load_saved_invivo_pk_for_ivivc():
+    txt = _saved_invivo_pk_text(st.session_state.get("InVivoFit"))
+    if txt:
+        st.session_state["pk_input_ivivc_tool"] = txt
+        st.session_state["ivivc_time_units_tool"] = "Hours"
+
+
+def _save_invivo_from_last_pack():
+    pack = st.session_state.get("deconv_last_pack")
+    if pack is None:
+        st.session_state["invivo_save_message"] = "No fitted in vivo profile is available to save yet."
+        st.session_state["invivo_save_success"] = False
+        return
+    save_invivofit_to_session(pack)
+    st.session_state["invivo_save_message"] = "The best convolution-based in vivo release model was saved in this session as InVivoFit."
+    st.session_state["invivo_save_success"] = True
+
+
+def _save_ivivc_from_last_pack():
+    pack = st.session_state.get("ivivc_last_pack")
+    if pack is None:
+        st.session_state["ivivc_save_message"] = "No IVIVC fit is available to save yet."
+        st.session_state["ivivc_save_success"] = False
+        return
+    save_ivivc_to_session(pack)
+    st.session_state["ivivc_save_message"] = "The IVIVC model was saved in this session as IVIVCModel."
+    st.session_state["ivivc_save_success"] = True
+
+
 
 def _default_bounds_and_start(model_name, t_h, y):
     t_h = np.asarray(t_h, dtype=float)
@@ -2459,9 +2502,12 @@ def _render_deconvolution_tool():
         tab_idx += 1
 
         with tabs[tab_idx]:
-            if st.button("Save best model as InVivoFit", key="save_invivofit_button"):
-                save_invivofit_to_session(fit_pack)
-                st.success("The best convolution-based in vivo release model was saved in this session as InVivoFit.")
+            st.button("Save best model as InVivoFit", key="save_invivofit_button", on_click=_save_invivo_from_last_pack)
+            if st.session_state.get("invivo_save_message"):
+                if st.session_state.get("invivo_save_success", False):
+                    st.success(st.session_state.get("invivo_save_message"))
+                else:
+                    st.warning(st.session_state.get("invivo_save_message"))
             if "InVivoFit" in st.session_state:
                 current = st.session_state["InVivoFit"]
                 st.info(f"Current saved in-session model: {current.get('name', 'InVivoFit')} ({current.get('model', '-')}, stored in hours).")
@@ -2653,20 +2699,25 @@ def render():
                 st.success(f"Current saved InVivoFit: {saved_invivo.get('model', '-')} (stored in hours). The IVIVC fit will use this saved in vivo release profile as the target.")
             else:
                 st.warning("No saved InVivoFit was found in the current session. The IVIVC tool will fall back to fitting against the PK profile directly.")
-            c1, c2 = st.columns([1, 6])
+
+            c1, c2, c3 = st.columns([1, 1.2, 6])
             with c1:
                 st.button("Sample Data", key="sample_pk_ivivc", on_click=load_pk_sample_text, args=("pk_input_ivivc_tool",))
             with c2:
+                st.button("Use saved InVivo PK", key="use_saved_invivo_pk_ivivc", on_click=load_saved_invivo_pk_for_ivivc, disabled=(saved_invivo is None))
+            with c3:
                 pk_text = st.text_area("PK table (first column = time, remaining columns = one or more Cp profiles)", height=260, key="pk_input_ivivc_tool")
+
             u1, u2, u3 = st.columns([1, 1, 1])
             with u1:
-                time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=0, key="ivivc_time_units_tool")
+                time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=1, key="ivivc_time_units_tool")
             with u2:
                 cp_unit_options = list(CP_MG_PER_L_TO_UNIT.keys())
                 cp_unit_default = (saved_invivo or {}).get("disposition", {}).get("cp_unit", "ug/mL")
                 cp_unit = st.selectbox("Cp units", cp_unit_options, index=(cp_unit_options.index(cp_unit_default) if cp_unit_default in cp_unit_options else 1), key="ivivc_cp_units_tool")
             with u3:
                 decimals = st.slider("Decimals", 1, 8, 3, key="ivivc_decimals_tool")
+
             d1, d2, d3, d4 = st.columns(4)
             with d1:
                 comp_options = [1, 2, 3]
@@ -2680,6 +2731,7 @@ def render():
                 dose_unit = st.selectbox("Dose units", dose_unit_options, index=(dose_unit_options.index(dose_unit_default) if dose_unit_default in dose_unit_options else 2), key="ivivc_dose_unit")
             with d4:
                 v_value = st.number_input("V", min_value=0.000001, value=float((saved_invivo or {}).get("disposition", {}).get("V_value", 50.0)), format="%.6f", key="ivivc_v_value")
+
             d5, d6, d7, d8 = st.columns(4)
             with d5:
                 v_unit_options = list(VOLUME_UNIT_TO_L.keys())
@@ -2691,11 +2743,15 @@ def render():
                 k12 = st.number_input("k12 (1/h)", min_value=0.0, value=float((saved_invivo or {}).get("disposition", {}).get("k12", 0.100000)), format="%.6f", key="ivivc_k12", disabled=compartments < 2)
             with d8:
                 k21 = st.number_input("k21 (1/h)", min_value=0.0, value=float((saved_invivo or {}).get("disposition", {}).get("k21", 0.050000)), format="%.6f", key="ivivc_k21", disabled=compartments < 2)
-            d9, d10 = st.columns(2)
+
+            d9, d10, d11 = st.columns([1, 1, 1.2])
             with d9:
                 k13 = st.number_input("k13 (1/h)", min_value=0.0, value=float((saved_invivo or {}).get("disposition", {}).get("k13", 0.050000)), format="%.6f", key="ivivc_k13", disabled=compartments < 3)
             with d10:
                 k31 = st.number_input("k31 (1/h)", min_value=0.0, value=float((saved_invivo or {}).get("disposition", {}).get("k31", 0.020000)), format="%.6f", key="ivivc_k31", disabled=compartments < 3)
+            with d11:
+                run_ivivc = st.button("Run IVIVC Fit", type="primary", key="run_ivivc_fit")
+
             o1, o2, o3 = st.columns([1.3, 1, 1])
             with o1:
                 use_paper_defaults = st.checkbox("Use paper/code defaults (A1 = 0, A2 = 1, B1 = 0)", value=True)
@@ -2703,6 +2759,7 @@ def render():
                 fit_bio = st.checkbox("Fit BIO", value=True)
             with o3:
                 fixed_bio = st.number_input("Fixed BIO", min_value=0.000001, value=1.000000, format="%.6f", key="ivivc_fixed_bio", disabled=fit_bio)
+
             if saved_invivo is not None:
                 st.caption("The saved in vitro Weibull model is transformed through the IVIVC time-scaling function t'' = B1 + B2·t^B3 and is fitted against the saved InVivoFit release profile. The PK table and the disposition settings are still used to back-predict the PK profile for validation and reporting.")
             else:
@@ -2711,83 +2768,96 @@ def render():
             if saved_invivo is not None and fit_bio:
                 st.info("Fit BIO is disabled when the objective is the saved InVivoFit release profile, because BIO is not identifiable from the release-vs-release IVIVC mapping alone. The current Fixed BIO value is used only for PK back-prediction.")
 
-            if pk_text:
-                try:
-                    pk_df = parse_pk_profile_table(pk_text)
-                    disposition = _build_disposition_config(compartments, dose_value, dose_unit, v_value, v_unit, cp_unit, k10, k12, k21, k13, k31, bio=(1.0 if fit_bio else fixed_bio))
-                    progress_bar, status_holder = _create_progress_display()
-                    _cb = _progress_callback_factory(progress_bar, status_holder)
-                    pack = fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio, saved_invivo=saved_invivo, progress_callback=_cb)
-                    progress_bar.progress(1.0)
-                    status_holder.markdown(f"Finished IVIVC fit. Best target: {'Saved InVivoFit release' if pack.get('used_saved_invivo', False) else 'PK profile'}.")
-                    fig_pk = plot_ivivc_pk_fit(pack)
-                    fig_rel = plot_ivivc_deconv(pack)
-                    fig_mean_pk = plot_pk_mean_profile_errorbars(pack, title="PK mean profile with error bars")
-                    fig_individual_pk = plot_pk_individual_profiles(pack, title="Individual PK profiles")
-                    fit_stats = pack["fit_stats_df"].iloc[0]
-                    m1, m2, m3 = st.columns(3)
-                    m1.metric("InVitroFit model", pack["saved_invitro_model"])
-                    m2.metric("IVIVC target", "Saved InVivoFit" if pack.get("used_saved_invivo", False) else "PK profile")
-                    m3.metric("IVIVC R²", f"{fit_stats['R²']:.{decimals}f}")
+            if run_ivivc:
+                source_text = pk_text if str(pk_text).strip() else _saved_invivo_pk_text(saved_invivo)
+                if not source_text or not str(source_text).strip():
+                    st.warning("Please provide PK data, press 'Sample Data', or load the saved InVivo PK before running IVIVC.")
+                    st.session_state.pop("ivivc_last_pack", None)
+                else:
+                    try:
+                        pk_df = parse_pk_profile_table(source_text)
+                        disposition = _build_disposition_config(compartments, dose_value, dose_unit, v_value, v_unit, cp_unit, k10, k12, k21, k13, k31, bio=(1.0 if fit_bio else fixed_bio))
+                        progress_bar, status_holder = _create_progress_display()
+                        _cb = _progress_callback_factory(progress_bar, status_holder)
+                        pack = fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio, saved_invivo=saved_invivo, progress_callback=_cb)
+                        st.session_state["ivivc_last_pack"] = pack
+                        progress_bar.progress(1.0)
+                        status_holder.markdown(f"Finished IVIVC fit. Best target: {'Saved InVivoFit release' if pack.get('used_saved_invivo', False) else 'PK profile'}.")
+                    except Exception as e:
+                        st.session_state.pop("ivivc_last_pack", None)
+                        st.error(str(e))
 
-                    t1, t2 = st.tabs(["PK study", "Save model"])
-                    with t1:
-                        inp = pk_df.copy()
-                        inp.insert(1, "Time_h", pk_df["Time_input"] * pack["time_factor"])
-                        report_table(inp, "Input PK data used in the IVIVC fit", decimals)
-                        report_table(pack["pk_individual_df"], "Individual-subject PK summary", decimals)
-                        report_table(pack["pk_mean_summary_df"], "Mean PK summary across profiles", decimals)
-                        report_table(pack["pk_mean_profile_df"], "PK mean profile with SD and SE", decimals)
-                        report_table(pack["disposition_df"], "Disposition system used in the IVIVC ODE fit", decimals)
-                        report_table(pack["fit_stats_df"], "IVIVC fit statistics", decimals)
-                        if pack.get("used_saved_invivo", False):
-                            report_table(pack["reference_release_df"], "Saved InVivoFit release profile and IVIVC transformed in vitro release", decimals)
-                        report_table(pack["param_df"], "Estimated IVIVC parameters", decimals)
-                        show_figure(fig_individual_pk, caption="Individual PK profiles")
-                        show_figure(fig_mean_pk, caption="PK mean profile with error bars")
-                        show_figure(fig_pk, caption="Observed PK profile and IVIVC-fitted PK profile")
-                        show_figure(fig_rel, caption="Recovered in vivo release and transformed in vitro release from the IVIVC fit")
-                    with t2:
-                        if st.button("Save IVIVC model", key="save_ivivc_model_button"):
-                            save_ivivc_to_session(pack)
-                            st.success("The IVIVC model was saved in this session as IVIVCModel.")
-                        if "IVIVCModel" in st.session_state:
-                            current = st.session_state["IVIVCModel"]
-                            invivo_src = current.get('source_invivo_model', '-')
-                            st.info(f"Current saved in-session model: {current.get('name', 'IVIVCModel')} (source InVitroFit: {current.get('source_invitro_model', '-')}, source InVivoFit: {invivo_src}).")
+            pack = st.session_state.get("ivivc_last_pack")
+            if pack is not None:
+                fig_pk = plot_ivivc_pk_fit(pack)
+                fig_rel = plot_ivivc_deconv(pack)
+                fig_mean_pk = plot_pk_mean_profile_errorbars(pack, title="PK mean profile with error bars")
+                fig_individual_pk = plot_pk_individual_profiles(pack, title="Individual PK profiles")
+                fit_stats = pack["fit_stats_df"].iloc[0]
+                m1, m2, m3 = st.columns(3)
+                m1.metric("InVitroFit model", pack["saved_invitro_model"])
+                m2.metric("IVIVC target", "Saved InVivoFit" if pack.get("used_saved_invivo", False) else "PK profile")
+                m3.metric("IVIVC R²", f"{fit_stats['R²']:.{decimals}f}")
 
-                    table_map = {
-                        "Input PK Data": pk_df.assign(Time_h=pk_df["Time_input"] * pack["time_factor"]),
-                        "Individual PK Summary": pack["pk_individual_df"],
-                        "Mean PK Summary": pack["pk_mean_summary_df"],
-                        "PK Mean Profile": pack["pk_mean_profile_df"],
-                        "Disposition System": pack["disposition_df"],
-                        "IVIVC Fit Statistics": pack["fit_stats_df"],
-                        "Estimated IVIVC Parameters": pack["param_df"],
-                        "Recovered Release Reference": pack["wn_df"],
-                    }
+                t1, t2 = st.tabs(["PK study", "Save model"])
+                with t1:
+                    inp = pack["input_df"].copy()
+                    inp.insert(1, "Time_h", pack["input_df"]["Time_input"] * pack["time_factor"])
+                    report_table(inp, "Input PK data used in the IVIVC fit", decimals)
+                    report_table(pack["pk_individual_df"], "Individual-subject PK summary", decimals)
+                    report_table(pack["pk_mean_summary_df"], "Mean PK summary across profiles", decimals)
+                    report_table(pack["pk_mean_profile_df"], "PK mean profile with SD and SE", decimals)
+                    report_table(pack["disposition_df"], "Disposition system used in the IVIVC ODE fit", decimals)
+                    report_table(pack["fit_stats_df"], "IVIVC fit statistics", decimals)
                     if pack.get("used_saved_invivo", False):
-                        table_map["Saved InVivoFit Release vs IVIVC Transformed In Vitro"] = pack["reference_release_df"]
-                    figure_map = {
-                        "Individual PK profiles": fig_to_png_bytes(fig_individual_pk),
-                        "PK mean profile with error bars": fig_to_png_bytes(fig_mean_pk),
-                        "Observed and IVIVC-fitted PK profile": fig_to_png_bytes(fig_pk),
-                        "Recovered in vivo release and IVIVC fit": fig_to_png_bytes(fig_rel),
-                    }
-                    export_results(
-                        prefix="ivivc_convolution_framework",
-                        report_title="Statistical Analysis Report",
-                        module_name="IVIVC",
-                        statistical_analysis="The saved InVitroFit Weibull model was used as the in vitro dissolution input, transformed through the time-scaling function, and fitted either to the saved InVivoFit release profile or directly to the PK profile through the compartment ODE system with user-supplied microconstants, dose, and V.",
-                        offer_text="This implementation follows the paper/code logic by fixing the in vitro dissolution model first and then estimating the IVIVC transformation on the in vivo target.",
-                        python_tools="pandas, numpy, scipy.optimize.least_squares, scipy.integrate.solve_ivp, scipy.stats, matplotlib, openpyxl, reportlab",
-                        table_map=table_map,
-                        figure_map=figure_map,
-                        conclusion="Review the estimated IVIVC parameters, the fitted PK profile, and the recovered-release comparison before using this model for downstream simulations.",
-                        decimals=decimals,
-                    )
-                except Exception as e:
-                    st.error(str(e))
+                        report_table(pack["reference_release_df"], "Saved InVivoFit release profile and IVIVC transformed in vitro release", decimals)
+                    report_table(pack["param_df"], "Estimated IVIVC parameters", decimals)
+                    show_figure(fig_individual_pk, caption="Individual PK profiles")
+                    show_figure(fig_mean_pk, caption="PK mean profile with error bars")
+                    show_figure(fig_pk, caption="Observed PK profile and IVIVC-fitted PK profile")
+                    show_figure(fig_rel, caption="Recovered in vivo release and transformed in vitro release from the IVIVC fit")
+                with t2:
+                    st.button("Save IVIVC model", key="save_ivivc_model_button", on_click=_save_ivivc_from_last_pack)
+                    if st.session_state.get("ivivc_save_message"):
+                        if st.session_state.get("ivivc_save_success", False):
+                            st.success(st.session_state.get("ivivc_save_message"))
+                        else:
+                            st.warning(st.session_state.get("ivivc_save_message"))
+                    if "IVIVCModel" in st.session_state:
+                        current = st.session_state["IVIVCModel"]
+                        invivo_src = current.get('source_invivo_model', '-')
+                        st.info(f"Current saved in-session model: {current.get('name', 'IVIVCModel')} (source InVitroFit: {current.get('source_invitro_model', '-')}, source InVivoFit: {invivo_src}).")
+
+                table_map = {
+                    "Input PK Data": pack["input_df"].assign(Time_h=pack["input_df"]["Time_input"] * pack["time_factor"]),
+                    "Individual PK Summary": pack["pk_individual_df"],
+                    "Mean PK Summary": pack["pk_mean_summary_df"],
+                    "PK Mean Profile": pack["pk_mean_profile_df"],
+                    "Disposition System": pack["disposition_df"],
+                    "IVIVC Fit Statistics": pack["fit_stats_df"],
+                    "Estimated IVIVC Parameters": pack["param_df"],
+                    "Recovered Release Reference": pack["wn_df"],
+                }
+                if pack.get("used_saved_invivo", False):
+                    table_map["Saved InVivoFit Release vs IVIVC Transformed In Vitro"] = pack["reference_release_df"]
+                figure_map = {
+                    "Individual PK profiles": fig_to_png_bytes(fig_individual_pk),
+                    "PK mean profile with error bars": fig_to_png_bytes(fig_mean_pk),
+                    "Observed and IVIVC-fitted PK profile": fig_to_png_bytes(fig_pk),
+                    "Recovered in vivo release and IVIVC fit": fig_to_png_bytes(fig_rel),
+                }
+                export_results(
+                    prefix="ivivc_convolution_framework",
+                    report_title="Statistical Analysis Report",
+                    module_name="IVIVC",
+                    statistical_analysis="The saved InVitroFit Weibull model was used as the in vitro dissolution input, transformed through the time-scaling function, and fitted either to the saved InVivoFit release profile or directly to the PK profile through the compartment ODE system with user-supplied microconstants, dose, and V.",
+                    offer_text="This implementation follows the paper/code logic by fixing the in vitro dissolution model first and then estimating the IVIVC transformation on the in vivo target.",
+                    python_tools="pandas, numpy, scipy.optimize.least_squares, scipy.integrate.solve_ivp, scipy.stats, matplotlib, openpyxl, reportlab",
+                    table_map=table_map,
+                    figure_map=figure_map,
+                    conclusion="Review the estimated IVIVC parameters, the fitted PK profile, and the recovered-release comparison before using this model for downstream simulations.",
+                    decimals=decimals,
+                )
     elif tool == "📈 In Vitro Weibull Fit":
         app_header("📈 In Vitro Weibull Fit", "Fit single, double, and triple Weibull models to one or more dissolution profiles, compare AIC values, and save the best model for reuse in the current session as InVitroFit.")
         c1, c2 = st.columns([1, 6])
