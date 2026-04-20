@@ -18,7 +18,7 @@ show_figure = common.show_figure
 DEFAULT_DECIMALS = common.DEFAULT_DECIMALS
 
 TOOLS = [
-    '📊 Descriptive Statistics & Intervals',
+    '📊 Descriptive Statistics',
     '📈 Regression Analysis',
     '⏳ Shelf Life Estimator',
     '📐 Two-Way ANOVA / GLM',
