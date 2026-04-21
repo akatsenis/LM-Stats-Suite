@@ -4,6 +4,8 @@ from scipy.optimize import least_squares
 from scipy.integrate import solve_ivp
 from scipy.stats import gaussian_kde
 from io import StringIO
+from pathlib import Path
+import json
 
 st = common.st
 pd = common.pd
@@ -77,6 +79,44 @@ IVIVC_UI_DEFAULTS = {
 WEIGHT_POWER_OPTIONS = [1.0, 0.25, 0.5, 1.25, 1.5, 2.0, 2.5, 3.0]
 FIT_SCALE_OPTIONS = ["Linear", "Log(Y)"]
 WEIGHT_SOURCE_OPTIONS = ["Unweighted", "Observed Y^-p", "Predicted Y^-p"]
+
+_PERSISTED_MODEL_PATH = Path(__file__).resolve().parent.parent / ".ivivc_saved_models.json"
+_PERSISTED_MODEL_KEYS = ("InVitroFit", "InVivoFit", "IVIVCModel")
+
+def _to_jsonable(value):
+    if isinstance(value, dict):
+        return {str(k): _to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_jsonable(v) for v in value]
+    if isinstance(value, np.ndarray):
+        return _to_jsonable(value.tolist())
+    if isinstance(value, pd.DataFrame):
+        return _to_jsonable(value.to_dict(orient="list"))
+    if isinstance(value, (np.integer, np.floating)):
+        return value.item()
+    if isinstance(value, np.bool_):
+        return bool(value)
+    return value
+
+def _persist_saved_models():
+    try:
+        payload = {k: _to_jsonable(st.session_state[k]) for k in _PERSISTED_MODEL_KEYS if k in st.session_state}
+        _PERSISTED_MODEL_PATH.write_text(json.dumps(payload, indent=2))
+    except Exception:
+        pass
+
+def _load_persisted_models_into_session():
+    try:
+        if not _PERSISTED_MODEL_PATH.exists():
+            return
+        payload = json.loads(_PERSISTED_MODEL_PATH.read_text())
+        if not isinstance(payload, dict):
+            return
+        for key in _PERSISTED_MODEL_KEYS:
+            if key in payload and key not in st.session_state:
+                st.session_state[key] = payload[key]
+    except Exception:
+        pass
 
 
 def _default_fit_options():
@@ -1054,6 +1094,7 @@ def save_invitrofit_to_session(fit_pack, time_unit_label):
         "parameter_se": param_se_map,
         "model_comparison": fit_pack["summary_df"].to_dict(orient="records"),
     }
+    _persist_saved_models()
 
 
 PK_SYNTHETIC_SAMPLE = """Time	Concentration_1	Concentration_2	Concentration_3
@@ -1757,6 +1798,32 @@ def build_pk_study_tables(pk_df, time_unit_label, cp_unit):
     return {"individual_df": individual_df, "mean_summary_df": mean_summary_df, "mean_profile_df": mean_profile_df}
 
 
+def build_pk_prediction_error_table(time_input, time_h, observed_cp, fitted_cp, time_unit_label, cp_unit):
+    obs = _pk_nca_one_profile(time_input, time_h, observed_cp, "Observed mean", time_unit_label, cp_unit)
+    fit = _pk_nca_one_profile(time_input, time_h, fitted_cp, "Fitted profile", time_unit_label, cp_unit)
+    metric_order = [
+        f"Cmax ({cp_unit})",
+        f"Tmax ({time_unit_label})",
+        "Tmax (h)",
+        f"AUCt ({cp_unit}·h)",
+        f"AUCinf ({cp_unit}·h)",
+        "λz (1/h)",
+        "AUC extrapolated (%)",
+        "Clast",
+        "Tlast (h)",
+    ]
+    rows = []
+    for metric in metric_order:
+        exp_val = obs.get(metric, np.nan)
+        fit_val = fit.get(metric, np.nan)
+        if np.isfinite(exp_val) and abs(float(exp_val)) > 1e-12 and np.isfinite(fit_val):
+            pe = 100.0 * (float(fit_val) - float(exp_val)) / float(exp_val)
+        else:
+            pe = np.nan
+        rows.append({"PK parameter": metric, "Experimental": exp_val, "Fitted": fit_val, "Prediction error (%)": pe})
+    return pd.DataFrame(rows)
+
+
 def _evaluate_saved_invitro_dissolution_percent(t_h, saved_model):
     model_name = saved_model["model"]
     param_map = saved_model["parameter_estimates"]
@@ -1854,11 +1921,10 @@ def plot_pk_mean_profile_errorbars(pack, title="PK mean profile with error bars"
         df["Time_input"],
         df["Mean Cp"],
         yerr=yerr,
-        fmt="o",
+        fmt="o-",
         capsize=3,
         color=cfg["primary_color"],
         linewidth=max(1.0, cfg["aux_line_width"]),
-        linestyle="None",
         label="Mean Cp ± SE",
     )
     apply_ax_style(ax, title, f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
@@ -1899,6 +1965,7 @@ def save_invivofit_to_session(pack):
         "mean_pk_time_h": np.asarray(pack.get("mean_pk_df", pd.DataFrame()).get("Time_h", []), dtype=float).tolist(),
         "mean_pk_cp": np.asarray(pack.get("mean_pk_df", pd.DataFrame()).get("Mean Cp", []), dtype=float).tolist(),
     }
+    _persist_saved_models()
 
 
 def _evaluate_saved_invivo_cumfrac(t_h, saved_invivo):
@@ -2379,6 +2446,15 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
         "Fabs reference (%)": fabs_ref * 100.0,
     })
 
+    pk_prediction_error_df = build_pk_prediction_error_table(
+        t_in,
+        t_h,
+        mean_cp,
+        np.asarray(best["pred_pack"]["cp_obs"], dtype=float),
+        time_unit_label,
+        disposition["cp_unit"],
+    )
+
     return {
         "input_df": pk_df.copy(),
         "time_factor": factor,
@@ -2414,6 +2490,7 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
         "pk_individual_df": pk_tables["individual_df"],
         "pk_mean_summary_df": pk_tables["mean_summary_df"],
         "pk_mean_profile_df": pk_tables["mean_profile_df"],
+        "pk_prediction_error_df": pk_prediction_error_df,
     }
 
 
@@ -2496,6 +2573,7 @@ def save_ivivc_to_session(pack):
         "expanded_parameters": {"A1": pred["A1"], "A2": pred["A2"], "B1": pred["B1"], "B2": pred["B2"], "B3": pred["B3"], "BIO": pred["BIO"]},
         "disposition": pack["disposition"],
     }
+    _persist_saved_models()
 
 
 
@@ -3067,6 +3145,7 @@ def _render_deconvolution_tool():
                 st.info(f"Current saved in-session model: {current.get('name', 'InVivoFit')} ({current.get('model', '-')}, stored in hours).")
 
 def render():
+    _load_persisted_models_into_session()
     render_display_settings()
     st.sidebar.title("💊 lm Stats")
     st.sidebar.markdown("IVIVC Suite")
@@ -3419,6 +3498,7 @@ def render():
                     report_table(pack["disposition_df"], "Disposition system used in the IVIVC ODE fit", decimals)
                     report_table(pack["fit_stats_df"], "IVIVC fit statistics", decimals)
                     report_table(pack["param_df"], "Estimated IVIVC parameters", decimals)
+                    report_table(pack["pk_prediction_error_df"], "PK parameter prediction error (experimental mean vs fitted profile)", decimals)
                     report_table(pack["reference_release_df"], "Reference in vivo release and IVIVC transformed in vitro release", decimals)
                     report_table(pack["deconv_mean_df"], f"Mean deconvoluted Fabs profile ({pack['deconv_method']})", decimals)
                     report_table(pack["time_scaling_df"], "IVIVC time scaling points", decimals)
@@ -3449,6 +3529,7 @@ def render():
                     "Disposition System": pack["disposition_df"],
                     "IVIVC Fit Statistics": pack["fit_stats_df"],
                     "Estimated IVIVC Parameters": pack["param_df"],
+                    "PK Parameter Prediction Error": pack["pk_prediction_error_df"],
                     "Reference Release Comparison": pack["reference_release_df"],
                     "Mean Deconvoluted Fabs": pack["deconv_mean_df"],
                     "IVIVC Time Scaling Points": pack["time_scaling_df"],
