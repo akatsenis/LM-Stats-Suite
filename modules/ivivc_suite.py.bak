@@ -1984,7 +1984,7 @@ def render():
             pk_text = st.text_area("PK table (first column = time, remaining columns = one or more Cp profiles)", height=260, key="pk_input_deconv")
         u1, u2, u3 = st.columns([1, 1, 1])
         with u1:
-            time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=0, key="deconv_time_units")
+            time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=1, key="deconv_time_units")
         with u2:
             cp_unit = st.selectbox("Cp units", list(CP_MG_PER_L_TO_UNIT.keys()), index=1, key="deconv_cp_units")
         with u3:
@@ -2084,7 +2084,7 @@ def render():
                 pk_text = st.text_area("PK table (first column = time, remaining columns = one or more Cp profiles)", height=260, key="pk_input_ivivc_tool")
             u1, u2, u3 = st.columns([1, 1, 1])
             with u1:
-                time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=0, key="ivivc_time_units_tool")
+                time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=1, key="ivivc_time_units_tool")
             with u2:
                 cp_unit = st.selectbox("Cp units", list(CP_MG_PER_L_TO_UNIT.keys()), index=1, key="ivivc_cp_units_tool")
             with u3:
@@ -2187,7 +2187,7 @@ def render():
             fit_text = st.text_area("Dissolution table (first column = time, remaining columns = one or more profiles / replicates)", height=260, key="weibull_input_ivivc")
         u1, u2 = st.columns([1, 1])
         with u1:
-            time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=0)
+            time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=1)
         with u2:
             decimals = st.slider("Decimals", 1, 8, 3, key="weibull_dec_ivivc")
         st.caption("The selected input time unit is converted internally so all fitting, stored parameters, and reports are in hours. Fmax is constrained to a maximum of 100, and the Triple Weibull fit enforces f1 + f2 ≤ 1 so the implied third fraction remains valid.")
