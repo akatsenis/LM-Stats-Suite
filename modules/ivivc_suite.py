@@ -734,8 +734,6 @@ def fit_weibull_model(t_h, y, model_name, parameter_tables=None, fit_options=Non
                 "covariance": infer["covariance"],
                 "dof": infer["dof"],
                 "rss": rss,
-        "raw_rss": raw_rss,
-                "raw_rss": raw_rss,
                 "raw_rss": raw_rss,
                 "aic": float(aic),
                 "bic": float(bic),
@@ -1556,8 +1554,6 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table
                 "aic": float(aic),
                 "bic": float(bic),
                 "rss": rss,
-        "raw_rss": raw_rss,
-                "raw_rss": raw_rss,
                 "raw_rss": raw_rss,
                 "r2": float(r2) if np.isfinite(r2) else np.nan,
                 "se": infer["se"],
@@ -2421,6 +2417,8 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table
     if len(free_idx) == 0:
         starts = [p0.copy()]
 
+    last_exception = None
+
     for start_full in starts:
         try:
             if len(free_idx) == 0:
@@ -2442,16 +2440,18 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table
 
                 res = least_squares(_resid_free, x0=start_free, bounds=(lb_free, ub_free), max_nfev=50000, method="trf")
                 if not res.success:
+                    last_exception = RuntimeError(res.message or "least_squares did not report success")
                     continue
                 params_eval = _expand_free(res.x, start_full)
-                final_resid = _deconv_residuals(params_eval, t_h, cp, model_name, disposition)
+                final_resid = _deconv_residuals(params_eval, t_h, cp, model_name, disposition, fit_options=fit_options)
                 _emit_progress(np.sum(np.square(final_resid)))
                 infer = _deconv_infer_statistics(model_name, t_h, cp, params_eval, lb, ub, disposition, fit_options=fit_options)
 
             yhat = infer["yhat"]
-            rss = float(np.sum((cp - yhat) ** 2))
-            n = len(cp)
-            k = int(np.sum(~fix_mask))
+            rss = _objective_ss(cp, yhat, fit_options)
+            raw_rss = float(np.sum((cp - yhat) ** 2))
+            n = len(_objective_residuals(cp, yhat, fit_options))
+            k = max(int(np.sum(~fix_mask)), 1)
             aic = n * np.log(max(rss, 1e-12) / max(n, 1)) + 2 * k
             bic = n * np.log(max(rss, 1e-12) / max(n, 1)) + k * np.log(max(n, 1))
             r2 = _objective_r2(cp, yhat, fit_options)
@@ -2467,8 +2467,6 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table
                 "aic": float(aic),
                 "bic": float(bic),
                 "rss": rss,
-        "raw_rss": raw_rss,
-                "raw_rss": raw_rss,
                 "raw_rss": raw_rss,
                 "r2": float(r2) if np.isfinite(r2) else np.nan,
                 "se": infer["se"],
@@ -2480,14 +2478,15 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table
                 "yhat": yhat,
                 "fit_options": _normalize_fit_options(fit_options),
                 "pred_pack": infer["pred_pack"],
-                "fit_options": _normalize_fit_options(fit_options),
             }
             if (best is None) or (cand["aic"] < best["aic"]):
                 best = cand
-        except Exception:
+        except Exception as exc:
+            last_exception = exc
             continue
     if best is None:
-        raise ValueError(f"{model_name} PK deconvolution-through-convolution fit did not converge.")
+        detail = f": {last_exception}" if last_exception is not None else ""
+        raise ValueError(f"{model_name} PK deconvolution-through-convolution fit did not converge{detail}")
     return best
 
 
@@ -2556,6 +2555,7 @@ def fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_ta
     selected_models = _resolve_model_choices(model_choice)
     results = []
     fits = {}
+    failed_models = []
     total_steps = max(1, len(selected_models) + 2)
     step = 0
     _progress_update(progress_callback, step, total_steps, "Preparing PK study summaries")
@@ -2563,19 +2563,29 @@ def fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_ta
     for model_name in selected_models:
         step += 1
         _progress_update(progress_callback, step, total_steps, f"Fitting {model_name} to the mean PK profile, Error = —")
-        fit = fit_pk_deconvolution_model(
-            t_h,
-            mean_cp,
-            model_name,
-            disposition,
-            parameter_table=(None if parameter_tables is None else parameter_tables.get(model_name)),
-            fit_options=fit_options,
-            progress_callback=progress_callback,
-            progress_step=step,
-            progress_total=total_steps,
-        )
+        try:
+            fit = fit_pk_deconvolution_model(
+                t_h,
+                mean_cp,
+                model_name,
+                disposition,
+                parameter_table=(None if parameter_tables is None else parameter_tables.get(model_name)),
+                fit_options=fit_options,
+                progress_callback=progress_callback,
+                progress_step=step,
+                progress_total=total_steps,
+            )
+        except Exception as exc:
+            failed_models.append({"Model": model_name, "Reason": str(exc)})
+            _progress_update(progress_callback, step, total_steps, f"{model_name} failed, keeping successful models")
+            continue
         fits[model_name] = fit
-        results.append({"Model": model_name, "AIC": fit["aic"], "BIC": fit["bic"], "RSS": fit["rss"], "R²": fit["r2"]})
+        results.append({"Model": model_name, "AIC": fit["aic"], "BIC": fit["bic"], "RSS": fit["rss"], "Raw RSS": fit.get("raw_rss", fit["rss"]), "R²": fit["r2"]})
+
+    if not fits:
+        failure_text = "; ".join(f"{x['Model']}: {x['Reason']}" for x in failed_models)
+        raise ValueError(f"None of the selected PK deconvolution models converged. {failure_text}")
+
     summary_df = pd.DataFrame(results).sort_values("AIC").reset_index(drop=True)
     best_model = summary_df.iloc[0]["Model"]
     best_fit = fits[best_model]
@@ -2599,8 +2609,9 @@ def fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_ta
         "wn_df": pd.DataFrame({"Time_input": t_in, "Time_h": t_h, "Wagner-Nelson fraction": wn}),
         "disposition": disposition, "disposition_df": disp_df,
         "pk_individual_df": pk_tables["individual_df"], "pk_mean_summary_df": pk_tables["mean_summary_df"], "pk_mean_profile_df": pk_tables["mean_profile_df"],
-        "model_names": selected_models,
-        "parameter_tables_used": {m: fits[m].get("editor_table") for m in selected_models if m in fits},
+        "model_names": list(fits.keys()),
+        "failed_models": failed_models,
+        "parameter_tables_used": {m: fits[m].get("editor_table") for m in fits},
         "result_mode": "fit",
         "fit_options": _normalize_fit_options(fit_options),
     }
@@ -2861,6 +2872,9 @@ def _render_deconvolution_tool():
             m1.metric("Best model", fit_pack["best_model"])
             m2.metric("Best AIC", f"{fit_pack['summary_df'].iloc[0]['AIC']:.{decimals}f}")
             m3.metric("Saved model key", "InVivoFit")
+            failed_models = fit_pack.get("failed_models", [])
+            if failed_models:
+                st.warning("Models not fitted: " + "; ".join(f"{x['Model']} ({x['Reason']})" for x in failed_models))
             inp = fit_pack["input_df"].copy()
             inp.insert(1, "Time_h", inp["Time_input"] * fit_pack["time_factor"])
             report_table(inp, "Input PK data used in the convolution-through-ODE fit", decimals)
