@@ -2831,7 +2831,7 @@ def render():
                 comp_default = int((saved_invivo or {}).get("disposition", {}).get("compartments", 1))
                 compartments = st.selectbox("Compartments", comp_options, index=(comp_options.index(comp_default) if comp_default in comp_options else 0), key="ivivc_compartments")
             with d2:
-                dose_value = st.number_input("Dose", min_value=0.000001, value=float((saved_invivo or {}).get("disposition", {}).get("dose_value", 20.0)), format="%.6f", key="ivivc_dose_value")
+                dose_value = st.number_input("Dose", min_value=0.000001, value=float((saved_invivo or {}).get("disposition", {}).get("dose_value", 6666666.6)), format="%.6f", key="ivivc_dose_value")
             with d3:
                 dose_unit_options = list(DOSE_UNIT_TO_MG.keys())
                 dose_unit_default = (saved_invivo or {}).get("disposition", {}).get("dose_unit", "mg")
