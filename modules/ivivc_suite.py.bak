@@ -618,7 +618,7 @@ def plot_weibull_profile_fits(df, fit_pack, time_unit_label):
     for rep in rep_cols:
         ax.plot(time_col, df[rep].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
     mean_df = fit_pack["mean_profile_df"]
-    ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linestyle='none', label="Observed mean")
+    ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean")
     for model_name in MODEL_SPECS:
         sub = fit_pack["curve_df"].loc[fit_pack["curve_df"]["Model"] == model_name]
         lw = cfg["line_width"] + (0.8 if model_name == fit_pack["best_model"] else 0.0)
@@ -636,7 +636,7 @@ def plot_best_model_profile(df, fit_pack, time_unit_label):
     for rep in rep_cols:
         ax.plot(time_col, df[rep].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.22, linewidth=max(0.8, cfg["aux_line_width"]))
     mean_df = fit_pack["mean_profile_df"]
-    ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linestyle='none', label="Observed mean")
+    ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean")
     best = fit_pack["best_model"]
     sub = fit_pack["curve_df"].loc[fit_pack["curve_df"]["Model"] == best]
     ax.plot(sub["Time_input"], sub["Predicted"], linewidth=cfg["line_width"] + 0.9, color=cfg["tertiary_color"], label=f"Fitted {best}")
@@ -1018,7 +1018,7 @@ def plot_deconvolution_pk_fit(pack):
     for col in pack["cp_cols"]:
         ax.plot(t, df[col].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
     mean_df = pack["mean_pk_df"]
-    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linestyle='none', label="Observed mean Cp")
+    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean Cp")
     pred = pack["best_fit"]["yhat"]
     ax.plot(mean_df["Time_input"], pred, color=cfg["tertiary_color"], linewidth=cfg["line_width"] + 0.8, label=f"Fitted {pack['best_model']} Cp")
     apply_ax_style(ax, f"Observed and fitted PK profile ({pack['best_model']})", f"Time ({pack['time_unit_label']})", "Cp", legend=True, plot_key="Dissolution comparison")
@@ -1194,7 +1194,7 @@ def plot_ivivc_pk_fit(pack):
     for col in pack["cp_cols"]:
         ax.plot(t, df[col].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
     mean_df = pack["mean_pk_df"]
-    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linestyle='none', label="Observed mean Cp")
+    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean Cp")
     ax.plot(mean_df["Time_input"], pack["fit"]["pred_pack"]["cp_obs"], color=cfg["tertiary_color"], linewidth=cfg["line_width"] + 0.8, label="IVIVC fitted Cp")
     apply_ax_style(ax, f"Observed and IVIVC-fitted PK profile ({pack['saved_invitro_model']})", f"Time ({pack['time_unit_label']})", "Cp", legend=True, plot_key="Dissolution comparison")
     return fig
@@ -1596,7 +1596,7 @@ def plot_deconvolution_pk_fit(pack):
     for col in pack["cp_cols"]:
         ax.plot(t, df[col].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
     mean_df = pack["mean_pk_df"]
-    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linestyle='none', label="Observed mean Cp")
+    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean Cp")
     pred = pack["best_fit"]["yhat"]
     ax.plot(mean_df["Time_input"], pred, color=cfg["tertiary_color"], linewidth=cfg["line_width"] + 0.8, label=f"Fitted {pack['best_model']} Cp")
     apply_ax_style(ax, f"Observed and fitted PK profile ({pack['best_model']})", f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
@@ -1771,7 +1771,7 @@ def plot_ivivc_pk_fit(pack):
     for col in pack["cp_cols"]:
         ax.plot(t, df[col].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
     mean_df = pack["mean_pk_df"]
-    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linestyle='none', label="Observed mean Cp")
+    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean Cp")
     ax.plot(mean_df["Time_input"], pack["fit"]["pred_pack"]["cp_obs"], color=cfg["tertiary_color"], linewidth=cfg["line_width"] + 0.8, label="IVIVC fitted Cp")
     apply_ax_style(ax, f"Observed and IVIVC-fitted PK profile ({pack['saved_invitro_model']})", f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
     return fig
@@ -1984,29 +1984,29 @@ def render():
             pk_text = st.text_area("PK table (first column = time, remaining columns = one or more Cp profiles)", height=260, key="pk_input_deconv")
         u1, u2, u3 = st.columns([1, 1, 1])
         with u1:
-            time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=1, key="deconv_time_units")
+            time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=0, key="deconv_time_units")
         with u2:
-            cp_unit = st.selectbox("Cp units", list(CP_MG_PER_L_TO_UNIT.keys()), index=2, key="deconv_cp_units")
+            cp_unit = st.selectbox("Cp units", list(CP_MG_PER_L_TO_UNIT.keys()), index=1, key="deconv_cp_units")
         with u3:
             decimals = st.slider("Decimals", 1, 8, 3, key="deconv_decimals")
         d1, d2, d3, d4 = st.columns(4)
         with d1:
             compartments = st.selectbox("Compartments", [1, 2, 3], index=0, key="deconv_compartments")
         with d2:
-            dose_value = st.number_input("Dose", min_value=0.000001, value=6666666.6, format="%.6f", key="deconv_dose_value")
+            dose_value = st.number_input("Dose", min_value=0.000001, value=20.0, format="%.6f", key="deconv_dose_value")
         with d3:
-            dose_unit = st.selectbox("Dose units", list(DOSE_UNIT_TO_MG.keys()), index=0, key="deconv_dose_unit")
+            dose_unit = st.selectbox("Dose units", list(DOSE_UNIT_TO_MG.keys()), index=2, key="deconv_dose_unit")
         with d4:
-            v_value = st.number_input("V", min_value=0.000001, value=1136.9, format="%.6f", key="deconv_v_value")
+            v_value = st.number_input("V", min_value=0.000001, value=50.0, format="%.6f", key="deconv_v_value")
         d5, d6, d7, d8 = st.columns(4)
         with d5:
-            v_unit = st.selectbox("V units", list(VOLUME_UNIT_TO_L.keys()), index=1, key="deconv_v_unit")
+            v_unit = st.selectbox("V units", list(VOLUME_UNIT_TO_L.keys()), index=2, key="deconv_v_unit")
         with d6:
-            k10 = st.number_input("k10 (1/h)", min_value=0.000001, value=0.770, format="%.6f", key="deconv_k10")
+            k10 = st.number_input("k10 (1/h)", min_value=0.000001, value=0.254000, format="%.6f", key="deconv_k10")
         with d7:
-            k12 = st.number_input("k12 (1/h)", min_value=0.0, value=1.382000, format="%.6f", key="deconv_k12", disabled=compartments < 2)
+            k12 = st.number_input("k12 (1/h)", min_value=0.0, value=0.100000, format="%.6f", key="deconv_k12", disabled=compartments < 2)
         with d8:
-            k21 = st.number_input("k21 (1/h)", min_value=0.0, value=1.814000, format="%.6f", key="deconv_k21", disabled=compartments < 2)
+            k21 = st.number_input("k21 (1/h)", min_value=0.0, value=0.050000, format="%.6f", key="deconv_k21", disabled=compartments < 2)
         d9, d10 = st.columns(2)
         with d9:
             k13 = st.number_input("k13 (1/h)", min_value=0.0, value=0.050000, format="%.6f", key="deconv_k13", disabled=compartments < 3)
@@ -2084,7 +2084,7 @@ def render():
                 pk_text = st.text_area("PK table (first column = time, remaining columns = one or more Cp profiles)", height=260, key="pk_input_ivivc_tool")
             u1, u2, u3 = st.columns([1, 1, 1])
             with u1:
-                time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=1, key="ivivc_time_units_tool")
+                time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=0, key="ivivc_time_units_tool")
             with u2:
                 cp_unit = st.selectbox("Cp units", list(CP_MG_PER_L_TO_UNIT.keys()), index=1, key="ivivc_cp_units_tool")
             with u3:
@@ -2093,20 +2093,20 @@ def render():
             with d1:
                 compartments = st.selectbox("Compartments", [1, 2, 3], index=0, key="ivivc_compartments")
             with d2:
-                dose_value = st.number_input("Dose", min_value=0.000001, value=6666666.6, format="%.6f", key="ivivc_dose_value")
+                dose_value = st.number_input("Dose", min_value=0.000001, value=20.0, format="%.6f", key="ivivc_dose_value")
             with d3:
-                dose_unit = st.selectbox("Dose units", list(DOSE_UNIT_TO_MG.keys()), index=0, key="ivivc_dose_unit")
+                dose_unit = st.selectbox("Dose units", list(DOSE_UNIT_TO_MG.keys()), index=2, key="ivivc_dose_unit")
             with d4:
-                v_value = st.number_input("V", min_value=0.000001, value=1136.9, format="%.6f", key="ivivc_v_value")
+                v_value = st.number_input("V", min_value=0.000001, value=50.0, format="%.6f", key="ivivc_v_value")
             d5, d6, d7, d8 = st.columns(4)
             with d5:
-                v_unit = st.selectbox("V units", list(VOLUME_UNIT_TO_L.keys()), index=1, key="ivivc_v_unit")
+                v_unit = st.selectbox("V units", list(VOLUME_UNIT_TO_L.keys()), index=2, key="ivivc_v_unit")
             with d6:
-                k10 = st.number_input("k10 (1/h)", min_value=0.000001, value=0.770000, format="%.6f", key="ivivc_k10")
+                k10 = st.number_input("k10 (1/h)", min_value=0.000001, value=0.254000, format="%.6f", key="ivivc_k10")
             with d7:
-                k12 = st.number_input("k12 (1/h)", min_value=0.0, value=1.382000, format="%.6f", key="ivivc_k12", disabled=compartments < 2)
+                k12 = st.number_input("k12 (1/h)", min_value=0.0, value=0.100000, format="%.6f", key="ivivc_k12", disabled=compartments < 2)
             with d8:
-                k21 = st.number_input("k21 (1/h)", min_value=0.0, value=1.814000, format="%.6f", key="ivivc_k21", disabled=compartments < 2)
+                k21 = st.number_input("k21 (1/h)", min_value=0.0, value=0.050000, format="%.6f", key="ivivc_k21", disabled=compartments < 2)
             d9, d10 = st.columns(2)
             with d9:
                 k13 = st.number_input("k13 (1/h)", min_value=0.0, value=0.050000, format="%.6f", key="ivivc_k13", disabled=compartments < 3)
@@ -2187,7 +2187,7 @@ def render():
             fit_text = st.text_area("Dissolution table (first column = time, remaining columns = one or more profiles / replicates)", height=260, key="weibull_input_ivivc")
         u1, u2 = st.columns([1, 1])
         with u1:
-            time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=1)
+            time_unit_label = st.selectbox("Input time units", ["Minutes", "Hours", "Days"], index=0)
         with u2:
             decimals = st.slider("Decimals", 1, 8, 3, key="weibull_dec_ivivc")
         st.caption("The selected input time unit is converted internally so all fitting, stored parameters, and reports are in hours. Fmax is constrained to a maximum of 100, and the Triple Weibull fit enforces f1 + f2 ≤ 1 so the implied third fraction remains valid.")
