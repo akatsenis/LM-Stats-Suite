@@ -55,6 +55,121 @@ CP_MG_PER_L_TO_UNIT = {
     "mg/mL": 1e-3,
 }
 
+WEIGHT_POWER_OPTIONS = [1.0, 0.25, 0.5, 1.25, 1.5, 2.0, 2.5, 3.0]
+FIT_SCALE_OPTIONS = ["Linear", "Log(Y)"]
+WEIGHT_SOURCE_OPTIONS = ["Unweighted", "Observed Y^-p", "Predicted Y^-p"]
+
+
+def _default_fit_options():
+    return {"fit_scale": "Linear", "weight_power": 1.0, "weight_source": "Unweighted"}
+
+
+def _normalize_fit_options(fit_options=None):
+    opts = dict(_default_fit_options())
+    if fit_options:
+        opts.update({k: v for k, v in dict(fit_options).items() if v is not None})
+    if opts["fit_scale"] not in FIT_SCALE_OPTIONS:
+        opts["fit_scale"] = "Linear"
+    if opts["weight_source"] not in WEIGHT_SOURCE_OPTIONS:
+        opts["weight_source"] = "Unweighted"
+    try:
+        opts["weight_power"] = float(opts.get("weight_power", 1.0))
+    except Exception:
+        opts["weight_power"] = 1.0
+    if opts["weight_power"] not in WEIGHT_POWER_OPTIONS:
+        opts["weight_power"] = 1.0
+    if abs(opts["weight_power"] - 1.0) < 1e-12:
+        opts["weight_source"] = "Unweighted"
+    return opts
+
+
+def _fit_options_label(fit_options=None):
+    opts = _normalize_fit_options(fit_options)
+    if opts["weight_source"] == "Unweighted":
+        weight_label = "Unweighted"
+    else:
+        weight_label = f"{opts['weight_source']} (p={opts['weight_power']:g})"
+    return f"{opts['fit_scale']} scale; {weight_label}"
+
+
+def _positive_floor(arr):
+    arr = np.asarray(arr, dtype=float)
+    pos = arr[np.isfinite(arr) & (arr > 0)]
+    if len(pos):
+        return max(float(np.min(pos)) * 0.1, 1e-12)
+    return 1e-12
+
+
+def _normalize_weights(weights):
+    w = np.asarray(weights, dtype=float).copy()
+    valid = np.isfinite(w) & (w > 0)
+    if not np.any(valid):
+        return np.ones_like(w, dtype=float)
+    w[~valid] = 0.0
+    s = float(np.sum(w[valid]))
+    if s <= 0:
+        return np.ones_like(w, dtype=float)
+    w[valid] = w[valid] / s * np.sum(valid)
+    return w
+
+
+def _weight_vector(y_obs, y_pred, fit_options=None):
+    opts = _normalize_fit_options(fit_options)
+    y_obs = np.asarray(y_obs, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+    if opts["weight_source"] == "Unweighted":
+        return np.ones_like(y_obs, dtype=float)
+    base = y_obs if opts["weight_source"] == "Observed Y^-p" else y_pred
+    w = np.zeros_like(base, dtype=float)
+    valid = np.isfinite(base) & (base > 0)
+    w[valid] = np.power(base[valid], -opts["weight_power"])
+    return _normalize_weights(w)
+
+
+def _objective_residuals(y_obs, y_pred, fit_options=None):
+    opts = _normalize_fit_options(fit_options)
+    y_obs = np.asarray(y_obs, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+    valid = np.isfinite(y_obs) & np.isfinite(y_pred)
+    y_obs_v = y_obs[valid]
+    y_pred_v = y_pred[valid]
+    if opts["fit_scale"] == "Log(Y)":
+        floor = min(_positive_floor(y_obs_v), _positive_floor(y_pred_v))
+        y_obs_v = np.log(np.clip(y_obs_v, floor, None))
+        y_pred_v = np.log(np.clip(y_pred_v, floor, None))
+    weights = _weight_vector(y_obs[valid], y_pred[valid], opts)
+    return np.sqrt(weights) * (y_pred_v - y_obs_v)
+
+
+def _objective_ss(y_obs, y_pred, fit_options=None):
+    resid = _objective_residuals(y_obs, y_pred, fit_options)
+    return float(np.sum(np.square(resid)))
+
+
+def _objective_r2(y_obs, y_pred, fit_options=None):
+    opts = _normalize_fit_options(fit_options)
+    y_obs = np.asarray(y_obs, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+    valid = np.isfinite(y_obs) & np.isfinite(y_pred)
+    if not np.any(valid):
+        return np.nan
+    obs_raw = y_obs[valid]
+    pred_raw = y_pred[valid]
+    rss = float(np.sum(np.square(_objective_residuals(obs_raw, pred_raw, opts))))
+    obs = obs_raw.copy()
+    if opts["fit_scale"] == "Log(Y)":
+        floor = min(_positive_floor(obs_raw), _positive_floor(pred_raw))
+        obs = np.log(np.clip(obs_raw, floor, None))
+    weights = _weight_vector(obs_raw, pred_raw, opts)
+    wsum = np.sum(weights)
+    if wsum <= 0:
+        return np.nan
+    mean_obs = float(np.sum(weights * obs) / wsum)
+    tss = float(np.sum(weights * np.square(obs - mean_obs)))
+    if tss <= 0:
+        return np.nan
+    return 1.0 - rss / tss
+
 
 def load_dual_sample_text(state_key_a, sample_key_a, state_key_b, sample_key_b):
     from modules.stats_suite import SAMPLE_DATA
@@ -442,10 +557,10 @@ def _candidate_starts(model_name, base_init, lb, ub):
     return out
 
 
-def _residuals_with_constraints(params, t_h, y, model_name):
+def _residuals_with_constraints(params, t_h, y, model_name, fit_options=None):
     params = _enforce_weight_constraints(model_name, params)
     pred = MODEL_SPECS[model_name]["func"](t_h, *params)
-    resid = pred - y
+    resid = _objective_residuals(y, pred, fit_options)
     if model_name == "Triple Weibull":
         f1 = params[1]
         f2 = params[2]
@@ -486,15 +601,20 @@ def _numerical_jacobian(func, t_h, params, lb=None, ub=None, eps=1e-6):
     return J
 
 
-def _infer_parameter_statistics(model_name, t_h, y, params, lb, ub, alpha=0.05):
+def _infer_parameter_statistics(model_name, t_h, y, params, lb, ub, alpha=0.05, fit_options=None):
     func = MODEL_SPECS[model_name]["func"]
     params = _enforce_weight_constraints(model_name, params)
     yhat = func(t_h, *params)
-    resid = y - yhat
-    n = len(y)
+    resid = _objective_residuals(y, yhat, fit_options)
+    n = len(resid)
     p = len(params)
     dof = max(n - p, 0)
-    J = _numerical_jacobian(func, t_h, params, lb=lb, ub=ub)
+
+    def _resid_func(tt, *pp):
+        pred_local = func(tt, *_enforce_weight_constraints(model_name, pp))
+        return _objective_residuals(y, pred_local, fit_options)
+
+    J = _numerical_jacobian(_resid_func, t_h, params, lb=lb, ub=ub)
     if dof <= 0:
         se = np.full(p, np.nan)
         t_val = np.full(p, np.nan)
@@ -527,7 +647,7 @@ def _infer_parameter_statistics(model_name, t_h, y, params, lb, ub, alpha=0.05):
     }
 
 
-def fit_weibull_model(t_h, y, model_name, parameter_tables=None, progress_callback=None, progress_step=None, progress_total=None, progress_every=10, progress_label=None):
+def fit_weibull_model(t_h, y, model_name, parameter_tables=None, fit_options=None, progress_callback=None, progress_step=None, progress_total=None, progress_every=10, progress_label=None):
     spec = MODEL_SPECS[model_name]
     mask = np.isfinite(t_h) & np.isfinite(y)
     t_h = np.asarray(t_h, dtype=float)[mask]
@@ -553,7 +673,7 @@ def fit_weibull_model(t_h, y, model_name, parameter_tables=None, progress_callba
     for start in _candidate_starts(model_name, init, lb, ub):
         try:
             def _resid_local(params):
-                resid = _residuals_with_constraints(params, t_h, y, model_name)
+                resid = _residuals_with_constraints(params, t_h, y, model_name, fit_options=fit_options)
                 progress_state["calls"] += 1
                 if progress_state["calls"] == 1 or progress_state["calls"] % max(int(progress_every), 1) == 0:
                     _emit_progress(np.sum(np.square(resid)))
@@ -570,15 +690,15 @@ def fit_weibull_model(t_h, y, model_name, parameter_tables=None, progress_callba
                 continue
             popt = _enforce_weight_constraints(model_name, res.x)
             yhat = spec["func"](t_h, *popt)
-            rss = float(np.sum((y - yhat) ** 2))
+            rss = _objective_ss(y, yhat, fit_options)
+            raw_rss = float(np.sum((y - yhat) ** 2))
             _emit_progress(rss)
-            infer = _infer_parameter_statistics(model_name, t_h, y, popt, lb, ub)
-            n = len(y)
+            infer = _infer_parameter_statistics(model_name, t_h, y, popt, lb, ub, fit_options=fit_options)
+            n = len(_objective_residuals(y, yhat, fit_options))
             k = len(popt)
-            aic = n * np.log(max(rss, 1e-12) / n) + 2 * k
-            bic = n * np.log(max(rss, 1e-12) / n) + k * np.log(max(n, 1))
-            tss = float(np.sum((y - np.mean(y)) ** 2))
-            r2 = 1.0 - rss / tss if tss > 0 else np.nan
+            aic = n * np.log(max(rss, 1e-12) / max(n, 1)) + 2 * k
+            bic = n * np.log(max(rss, 1e-12) / max(n, 1)) + k * np.log(max(n, 1))
+            r2 = _objective_r2(y, yhat, fit_options)
             adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / max(n - k - 1, 1) if np.isfinite(r2) else np.nan
             candidate = {
                 "params": popt,
@@ -595,11 +715,15 @@ def fit_weibull_model(t_h, y, model_name, parameter_tables=None, progress_callba
                 "covariance": infer["covariance"],
                 "dof": infer["dof"],
                 "rss": rss,
+        "raw_rss": raw_rss,
+                "raw_rss": raw_rss,
+                "raw_rss": raw_rss,
                 "aic": float(aic),
                 "bic": float(bic),
                 "r2": float(r2) if np.isfinite(r2) else np.nan,
                 "adj_r2": float(adj_r2) if np.isfinite(adj_r2) else np.nan,
                 "yhat": yhat,
+                "fit_options": _normalize_fit_options(fit_options),
             }
             if (best is None) or (rss < best["rss"]):
                 best = candidate
@@ -647,7 +771,7 @@ def _single_profile_detail_rows(model_name, fit):
 
 
 
-def fit_weibull_suite(df, time_unit_label, parameter_tables=None, model_choice=None, progress_callback=None):
+def fit_weibull_suite(df, time_unit_label, parameter_tables=None, model_choice=None, fit_options=None, progress_callback=None):
     factor = TIME_UNIT_TO_HOURS[time_unit_label]
     t_in = df["Time_input"].to_numpy(dtype=float)
     t_h = t_in * factor
@@ -677,6 +801,7 @@ def fit_weibull_suite(df, time_unit_label, parameter_tables=None, model_choice=N
                 y,
                 model_name,
                 parameter_tables=parameter_tables,
+                fit_options=fit_options,
                 progress_callback=progress_callback,
                 progress_step=step,
                 progress_total=total_steps,
@@ -751,6 +876,7 @@ def fit_weibull_suite(df, time_unit_label, parameter_tables=None, model_choice=N
         "replicate_cols": rep_cols,
         "input_df": df.copy(),
         "model_names": selected_models,
+        "fit_options": _normalize_fit_options(fit_options),
     }
 
 
@@ -761,9 +887,9 @@ def plot_weibull_profile_fits(df, fit_pack, time_unit_label):
     time_col = df["Time_input"].to_numpy(dtype=float)
     rep_cols = fit_pack["replicate_cols"]
     for rep in rep_cols:
-        ax.plot(time_col, df[rep].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
+        ax.plot(time_col, df[rep].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linestyle="None", marker="o", markersize=max(3, int(cfg["marker_size"] ** 0.45)))
     mean_df = fit_pack["mean_profile_df"]
-    ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean")
+    ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linewidth=0.0, linestyle="None", label="Observed mean")
     for model_name in fit_pack.get("model_names", list(MODEL_SPECS.keys())):
         sub = fit_pack["curve_df"].loc[fit_pack["curve_df"]["Model"] == model_name]
         lw = cfg["line_width"] + (0.8 if model_name == fit_pack["best_model"] else 0.0)
@@ -781,7 +907,7 @@ def plot_best_model_profile(df, fit_pack, time_unit_label):
     for rep in rep_cols:
         ax.plot(time_col, df[rep].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.22, linewidth=max(0.8, cfg["aux_line_width"]))
     mean_df = fit_pack["mean_profile_df"]
-    ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean")
+    ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linewidth=0.0, linestyle="None", label="Observed mean")
     best = fit_pack["best_model"]
     sub = fit_pack["curve_df"].loc[fit_pack["curve_df"]["Model"] == best]
     ax.plot(sub["Time_input"], sub["Predicted"], linewidth=cfg["line_width"] + 0.9, color=cfg["tertiary_color"], label=f"Fitted {best}")
@@ -812,7 +938,7 @@ def plot_residuals_best_model(fit_pack, time_unit_label):
     t_in = mean_df["Time_input"].to_numpy(dtype=float)
     fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
     ax.axhline(0.0, color=cfg["tertiary_color"], linewidth=cfg["aux_line_width"], linestyle=cfg["aux_line_style"])
-    ax.plot(t_in, resid, marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"])
+    ax.plot(t_in, resid, marker="o", color=cfg["primary_color"], linewidth=0.0, linestyle="None")
     apply_ax_style(ax, f"Residual plot for best model ({best})", f"Time ({time_unit_label})", "Residual", legend=False, plot_key="Dissolution comparison")
     return fig
 
@@ -1287,21 +1413,22 @@ def _deconv_predict_pk(model_name, t_obs_h, params, disposition):
     }
 
 
-def _deconv_residuals(params, t_h, y, model_name, disposition):
+def _deconv_residuals(params, t_h, y, model_name, disposition, fit_options=None):
     pred = _deconv_predict_pk(model_name, t_h, params, disposition)["cp_obs"]
-    return pred - y
+    return _objective_residuals(y, pred, fit_options)
 
 
-def _deconv_infer_statistics(model_name, t_h, y, params, lb, ub, disposition):
+def _deconv_infer_statistics(model_name, t_h, y, params, lb, ub, disposition, fit_options=None):
     pred_pack = _deconv_predict_pk(model_name, t_h, params, disposition)
     yhat = pred_pack["cp_obs"]
-    resid = y - yhat
-    n = len(y)
+    resid = _objective_residuals(y, yhat, fit_options)
+    n = len(resid)
     p = len(params)
     dof = max(n - p, 0)
-    def _pred_func(tt, *pp):
-        return _deconv_predict_pk(model_name, tt, pp, disposition)["cp_obs"]
-    J = _numerical_jacobian(_pred_func, t_h, np.asarray(params, dtype=float), lb=lb, ub=ub)
+    def _resid_func(tt, *pp):
+        pred_local = _deconv_predict_pk(model_name, tt, pp, disposition)["cp_obs"]
+        return _objective_residuals(y, pred_local, fit_options)
+    J = _numerical_jacobian(_resid_func, t_h, np.asarray(params, dtype=float), lb=lb, ub=ub)
     if dof <= 0:
         se = np.full(p, np.nan)
         t_val = np.full(p, np.nan)
@@ -1324,6 +1451,7 @@ def _deconv_infer_statistics(model_name, t_h, y, params, lb, ub, disposition):
         "rse_pct": np.divide(se * 100.0, np.abs(np.asarray(params, dtype=float)), out=np.full_like(np.asarray(params, dtype=float), np.nan), where=np.abs(np.asarray(params, dtype=float)) > 0),
         "dof": dof,
         "pred_pack": pred_pack,
+        "fit_options": _normalize_fit_options(fit_options),
     }
 
 
@@ -1371,7 +1499,7 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table
         try:
             if len(free_idx) == 0:
                 params_eval = _deconv_param_split(model_name, start_full)
-                infer = _deconv_infer_statistics(model_name, t_h, cp, params_eval, lb, ub, disposition)
+                infer = _deconv_infer_statistics(model_name, t_h, cp, params_eval, lb, ub, disposition, fit_options=fit_options)
             else:
                 start_free = np.asarray(start_full, dtype=float)[free_idx]
                 lb_free = lb[free_idx]
@@ -1384,16 +1512,15 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table
                 if not res.success:
                     continue
                 params_eval = _expand_free(res.x, start_full)
-                infer = _deconv_infer_statistics(model_name, t_h, cp, params_eval, lb, ub, disposition)
+                infer = _deconv_infer_statistics(model_name, t_h, cp, params_eval, lb, ub, disposition, fit_options=fit_options)
 
             yhat = infer["yhat"]
             rss = float(np.sum((cp - yhat) ** 2))
             n = len(cp)
             k = int(np.sum(~fix_mask))
-            aic = n * np.log(max(rss, 1e-12) / n) + 2 * k
-            bic = n * np.log(max(rss, 1e-12) / n) + k * np.log(max(n, 1))
-            tss = float(np.sum((cp - np.mean(cp)) ** 2))
-            r2 = 1.0 - rss / tss if tss > 0 else np.nan
+            aic = n * np.log(max(rss, 1e-12) / max(n, 1)) + 2 * k
+            bic = n * np.log(max(rss, 1e-12) / max(n, 1)) + k * np.log(max(n, 1))
+            r2 = _objective_r2(cp, yhat, fit_options)
             cand = {
                 "params": np.asarray(params_eval, dtype=float),
                 "param_names": param_names,
@@ -1406,6 +1533,9 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table
                 "aic": float(aic),
                 "bic": float(bic),
                 "rss": rss,
+        "raw_rss": raw_rss,
+                "raw_rss": raw_rss,
+                "raw_rss": raw_rss,
                 "r2": float(r2) if np.isfinite(r2) else np.nan,
                 "se": infer["se"],
                 "t_value": infer["t_value"],
@@ -1414,7 +1544,9 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table
                 "ucl": infer["ucl"],
                 "rse_pct": infer["rse_pct"],
                 "yhat": yhat,
+                "fit_options": _normalize_fit_options(fit_options),
                 "pred_pack": infer["pred_pack"],
+                "fit_options": _normalize_fit_options(fit_options),
             }
             if (best is None) or (cand["aic"] < best["aic"]):
                 best = cand
@@ -1535,7 +1667,7 @@ def _evaluate_saved_invitro_dissolution_percent(t_h, saved_model):
 
 
 
-def fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_tables=None, model_choice=None, progress_callback=None):
+def fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_tables=None, model_choice=None, fit_options=None, progress_callback=None):
     factor = TIME_UNIT_TO_HOURS[time_unit_label]
     t_in = pk_df["Time_input"].to_numpy(dtype=float)
     t_h = t_in * factor
@@ -1589,9 +1721,9 @@ def plot_deconvolution_pk_fit(pack):
     df = pack["input_df"]
     t = df["Time_input"].to_numpy(dtype=float)
     for col in pack["cp_cols"]:
-        ax.plot(t, df[col].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
+        ax.plot(t, df[col].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linestyle="None", marker="o", markersize=max(3, int(cfg["marker_size"] ** 0.45)))
     mean_df = pack["mean_pk_df"]
-    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean Cp")
+    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linewidth=0.0, linestyle="None", label="Observed mean Cp")
     pred = pack["best_fit"]["yhat"]
     ax.plot(mean_df["Time_input"], pred, color=cfg["tertiary_color"], linewidth=cfg["line_width"] + 0.8, label=f"Fitted {pack['best_model']} Cp")
     apply_ax_style(ax, f"Observed and fitted PK profile ({pack['best_model']})", f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
@@ -1618,7 +1750,7 @@ def plot_pk_mean_profile_errorbars(pack, title="PK mean profile with error bars"
     df = pack["pk_mean_profile_df"]
     yerr = df["SE"].to_numpy(dtype=float)
     yerr = np.where(np.isfinite(yerr), yerr, 0.0)
-    ax.errorbar(df["Time_input"], df["Mean Cp"], yerr=yerr, fmt="o-", capsize=3, color=cfg["primary_color"], linewidth=cfg["line_width"], label="Mean Cp ± SE")
+    ax.errorbar(df["Time_input"], df["Mean Cp"], yerr=yerr, fmt="o", capsize=3, color=cfg["primary_color"], linewidth=0.0, linestyle="None", label="Mean Cp ± SE")
     apply_ax_style(ax, title, f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
     return fig
 
@@ -1630,7 +1762,7 @@ def plot_pk_individual_profiles(pack, title="Individual PK profiles"):
     df = pack["input_df"]
     t = df["Time_input"].to_numpy(dtype=float)
     for col in pack["cp_cols"]:
-        ax.plot(t, df[col].to_numpy(dtype=float), marker="o", linewidth=max(0.9, cfg["aux_line_width"]), alpha=0.85, label=col)
+        ax.plot(t, df[col].to_numpy(dtype=float), marker="o", linewidth=0.0, linestyle="None", alpha=0.85, label=col)
     apply_ax_style(ax, title, f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
     return fig
 
@@ -1790,12 +1922,17 @@ def _predict_ivivc_pk(t_h, saved_invitro, params, disposition, use_paper_default
     }
 
 
-def _ivivc_residuals(params, t_h, y, saved_invitro, disposition, use_paper_defaults=True, fit_bio=False, fixed_bio=1.0):
+def _ivivc_residuals(params, t_h, y, saved_invitro, disposition, use_paper_defaults=True, fit_bio=False, fixed_bio=1.0, fit_options=None):
     pred = _predict_ivivc_pk(t_h, saved_invitro, params, disposition, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio)["cp_obs"]
-    return pred - y
+    return _objective_residuals(y, pred, fit_options)
+
+def _ivivc_residuals_release(params, t_h, y_release, saved_invitro, disposition, use_paper_defaults=True, fit_bio=False, fixed_bio=1.0, fit_options=None):
+    pred = _predict_ivivc_pk(t_h, saved_invitro, params, disposition, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio)
+    pred_release = np.interp(np.asarray(t_h, dtype=float), pred["t_grid_h"], pred["cumfrac_grid"])
+    return _objective_residuals(y_release, pred_release, fit_options)
 
 
-def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper_defaults=True, fit_bio=False, fixed_bio=1.0, saved_invivo=None, progress_callback=None, progress_every=10):
+def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper_defaults=True, fit_bio=False, fixed_bio=1.0, saved_invivo=None, fit_options=None, progress_callback=None, progress_every=10):
     factor = TIME_UNIT_TO_HOURS[time_unit_label]
     t_in = pk_df["Time_input"].to_numpy(dtype=float)
     t_h = t_in * factor
@@ -1828,7 +1965,7 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
         try:
             if use_saved_invivo:
                 def _resid_release_local(x):
-                    resid = _ivivc_residuals_release(x, t_h, release_target, saved_invitro, disposition, use_paper_defaults, fit_bio_effective, fixed_bio)
+                    resid = _ivivc_residuals_release(x, t_h, release_target, saved_invitro, disposition, use_paper_defaults, fit_bio_effective, fixed_bio, fit_options=fit_options)
                     progress_state["calls"] += 1
                     if progress_state["calls"] == 1 or progress_state["calls"] % max(int(progress_every), 1) == 0:
                         _emit_progress(np.sum(np.square(resid)))
@@ -1842,7 +1979,7 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
                 )
             else:
                 def _resid_pk_local(x):
-                    resid = _ivivc_residuals(x, t_h, mean_cp, saved_invitro, disposition, use_paper_defaults, fit_bio_effective, fixed_bio)
+                    resid = _ivivc_residuals(x, t_h, mean_cp, saved_invitro, disposition, use_paper_defaults, fit_bio_effective, fixed_bio, fit_options=fit_options)
                     progress_state["calls"] += 1
                     if progress_state["calls"] == 1 or progress_state["calls"] % max(int(progress_every), 1) == 0:
                         _emit_progress(np.sum(np.square(resid)))
@@ -1865,19 +2002,24 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
                 yhat = pred_pack["cp_obs"]
                 target = mean_cp
                 target_label = "Observed PK profile"
-            rss = float(np.sum((target - yhat) ** 2))
+            rss = _objective_ss(target, yhat, fit_options)
+            raw_rss = float(np.sum((target - yhat) ** 2))
             _emit_progress(rss)
-            n = len(target)
+            n = len(_objective_residuals(target, yhat, fit_options))
             k = len(res.x)
-            aic = n * np.log(max(rss, 1e-12) / n) + 2 * k
-            bic = n * np.log(max(rss, 1e-12) / n) + k * np.log(max(n, 1))
-            tss = float(np.sum((target - np.mean(target)) ** 2))
-            r2 = 1.0 - rss / tss if tss > 0 else np.nan
+            aic = n * np.log(max(rss, 1e-12) / max(n, 1)) + 2 * k
+            bic = n * np.log(max(rss, 1e-12) / max(n, 1)) + k * np.log(max(n, 1))
+            r2 = _objective_r2(target, yhat, fit_options)
             if (best is None) or (aic < best["aic"]):
                 best = {
                     "params": np.asarray(res.x, dtype=float),
                     "pred_pack": pred_pack,
+        "fit_options": _normalize_fit_options(fit_options),
                     "rss": rss,
+                    "raw_rss": raw_rss,
+        "raw_rss": raw_rss,
+                "raw_rss": raw_rss,
+                "raw_rss": raw_rss,
                     "aic": float(aic),
                     "bic": float(bic),
                     "r2": float(r2) if np.isfinite(r2) else np.nan,
@@ -1890,6 +2032,7 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
                     "fit_target_predictions": np.asarray(yhat, dtype=float),
                     "used_saved_invivo": use_saved_invivo,
                     "fit_bio_effective": fit_bio_effective,
+                    "fit_options": _normalize_fit_options(fit_options),
                 }
         except Exception:
             continue
@@ -1950,9 +2093,9 @@ def plot_ivivc_pk_fit(pack):
     df = pack["input_df"]
     t = df["Time_input"].to_numpy(dtype=float)
     for col in pack["cp_cols"]:
-        ax.plot(t, df[col].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
+        ax.plot(t, df[col].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linestyle="None", marker="o", markersize=max(3, int(cfg["marker_size"] ** 0.45)))
     mean_df = pack["mean_pk_df"]
-    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean Cp")
+    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linewidth=0.0, linestyle="None", label="Observed mean Cp")
     ax.plot(mean_df["Time_input"], pack["fit"]["pred_pack"]["cp_obs"], color=cfg["tertiary_color"], linewidth=cfg["line_width"] + 0.8, label="IVIVC fitted Cp")
     apply_ax_style(ax, f"Observed and IVIVC-fitted PK profile ({pack['saved_invitro_model']})", f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
     return fig
@@ -1993,7 +2136,7 @@ def _deconv_model_metadata(model_name):
     return ["Fmax", "f1", "f2", "MDT1_h", "b1", "MDT2_h", "b2", "MDT3_h", "b3"], ["Fmax", "f1", "f2", "MDT1", "β1", "MDT2", "β2", "MDT3", "β3"]
 
 
-def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table=None, progress_callback=None, progress_step=None, progress_total=None, progress_every=10):
+def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table=None, fit_options=None, progress_callback=None, progress_step=None, progress_total=None, progress_every=10):
     t_h = np.asarray(t_h, dtype=float)
     cp = np.asarray(cp, dtype=float)
     mask = np.isfinite(t_h) & np.isfinite(cp)
@@ -2042,16 +2185,16 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table
         try:
             if len(free_idx) == 0:
                 params_eval = _deconv_param_split(model_name, start_full)
-                resid = _deconv_residuals(params_eval, t_h, cp, model_name, disposition)
+                resid = _deconv_residuals(params_eval, t_h, cp, model_name, disposition, fit_options=fit_options)
                 _emit_progress(np.sum(np.square(resid)))
-                infer = _deconv_infer_statistics(model_name, t_h, cp, params_eval, lb, ub, disposition)
+                infer = _deconv_infer_statistics(model_name, t_h, cp, params_eval, lb, ub, disposition, fit_options=fit_options)
             else:
                 start_free = np.asarray(start_full, dtype=float)[free_idx]
                 lb_free = lb[free_idx]
                 ub_free = ub[free_idx]
 
                 def _resid_free(x_free):
-                    resid_local = _deconv_residuals(_expand_free(x_free, start_full), t_h, cp, model_name, disposition)
+                    resid_local = _deconv_residuals(_expand_free(x_free, start_full), t_h, cp, model_name, disposition, fit_options=fit_options)
                     progress_state["calls"] += 1
                     if progress_state["calls"] == 1 or progress_state["calls"] % max(int(progress_every), 1) == 0:
                         _emit_progress(np.sum(np.square(resid_local)))
@@ -2063,16 +2206,15 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table
                 params_eval = _expand_free(res.x, start_full)
                 final_resid = _deconv_residuals(params_eval, t_h, cp, model_name, disposition)
                 _emit_progress(np.sum(np.square(final_resid)))
-                infer = _deconv_infer_statistics(model_name, t_h, cp, params_eval, lb, ub, disposition)
+                infer = _deconv_infer_statistics(model_name, t_h, cp, params_eval, lb, ub, disposition, fit_options=fit_options)
 
             yhat = infer["yhat"]
             rss = float(np.sum((cp - yhat) ** 2))
             n = len(cp)
             k = int(np.sum(~fix_mask))
-            aic = n * np.log(max(rss, 1e-12) / n) + 2 * k
-            bic = n * np.log(max(rss, 1e-12) / n) + k * np.log(max(n, 1))
-            tss = float(np.sum((cp - np.mean(cp)) ** 2))
-            r2 = 1.0 - rss / tss if tss > 0 else np.nan
+            aic = n * np.log(max(rss, 1e-12) / max(n, 1)) + 2 * k
+            bic = n * np.log(max(rss, 1e-12) / max(n, 1)) + k * np.log(max(n, 1))
+            r2 = _objective_r2(cp, yhat, fit_options)
             cand = {
                 "params": np.asarray(params_eval, dtype=float),
                 "param_names": param_names,
@@ -2085,6 +2227,9 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table
                 "aic": float(aic),
                 "bic": float(bic),
                 "rss": rss,
+        "raw_rss": raw_rss,
+                "raw_rss": raw_rss,
+                "raw_rss": raw_rss,
                 "r2": float(r2) if np.isfinite(r2) else np.nan,
                 "se": infer["se"],
                 "t_value": infer["t_value"],
@@ -2093,7 +2238,9 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table
                 "ucl": infer["ucl"],
                 "rse_pct": infer["rse_pct"],
                 "yhat": yhat,
+                "fit_options": _normalize_fit_options(fit_options),
                 "pred_pack": infer["pred_pack"],
+                "fit_options": _normalize_fit_options(fit_options),
             }
             if (best is None) or (cand["aic"] < best["aic"]):
                 best = cand
@@ -2104,7 +2251,7 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table
     return best
 
 
-def simulate_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table=None):
+def simulate_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table=None, fit_options=None):
     t_h = np.asarray(t_h, dtype=float)
     cp = np.asarray(cp, dtype=float)
     mask = np.isfinite(t_h) & np.isfinite(cp)
@@ -2126,13 +2273,13 @@ def simulate_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_
     params_eval = _deconv_param_split(model_name, p0)
     pred_pack = _deconv_predict_pk(model_name, t_h, params_eval, disposition)
     yhat = pred_pack["cp_obs"]
-    rss = float(np.sum((cp - yhat) ** 2))
-    n = len(cp)
+    rss = _objective_ss(cp, yhat, fit_options)
+    raw_rss = float(np.sum((cp - yhat) ** 2))
+    n = len(_objective_residuals(cp, yhat, fit_options))
     k = max(int(np.sum(~fix_mask)), 1)
     aic = n * np.log(max(rss, 1e-12) / max(n, 1)) + 2 * k
     bic = n * np.log(max(rss, 1e-12) / max(n, 1)) + k * np.log(max(n, 1))
-    tss = float(np.sum((cp - np.mean(cp)) ** 2))
-    r2 = 1.0 - rss / tss if tss > 0 else np.nan
+    r2 = _objective_r2(cp, yhat, fit_options)
     nan_vec = np.full(len(params_eval), np.nan)
     return {
         "params": np.asarray(params_eval, dtype=float),
@@ -2146,6 +2293,7 @@ def simulate_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_
         "aic": float(aic),
         "bic": float(bic),
         "rss": rss,
+        "raw_rss": raw_rss,
         "r2": float(r2) if np.isfinite(r2) else np.nan,
         "se": nan_vec.copy(),
         "t_value": nan_vec.copy(),
@@ -2155,10 +2303,11 @@ def simulate_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_
         "rse_pct": nan_vec.copy(),
         "yhat": yhat,
         "pred_pack": pred_pack,
+        "fit_options": _normalize_fit_options(fit_options),
     }
 
 
-def fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_tables=None, model_choice=None, progress_callback=None):
+def fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_tables=None, model_choice=None, fit_options=None, progress_callback=None):
     factor = TIME_UNIT_TO_HOURS[time_unit_label]
     t_in = pk_df["Time_input"].to_numpy(dtype=float)
     t_h = t_in * factor
@@ -2180,6 +2329,7 @@ def fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_ta
             model_name,
             disposition,
             parameter_table=(None if parameter_tables is None else parameter_tables.get(model_name)),
+            fit_options=fit_options,
             progress_callback=progress_callback,
             progress_step=step,
             progress_total=total_steps,
@@ -2212,10 +2362,11 @@ def fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_ta
         "model_names": selected_models,
         "parameter_tables_used": {m: fits[m].get("editor_table") for m in selected_models if m in fits},
         "result_mode": "fit",
+        "fit_options": _normalize_fit_options(fit_options),
     }
 
 
-def simulate_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_tables=None, model_choice=None, progress_callback=None):
+def simulate_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_tables=None, model_choice=None, fit_options=None, progress_callback=None):
     factor = TIME_UNIT_TO_HOURS[time_unit_label]
     t_in = pk_df["Time_input"].to_numpy(dtype=float)
     t_h = t_in * factor
@@ -2230,7 +2381,7 @@ def simulate_pk_deconvolution_suite(pk_df, time_unit_label, disposition, paramet
     pk_tables = build_pk_study_tables(pk_df, time_unit_label, disposition["cp_unit"])
     for model_name in selected_models:
         step += 1
-        fit = simulate_pk_deconvolution_model(t_h, mean_cp, model_name, disposition, parameter_table=(None if parameter_tables is None else parameter_tables.get(model_name)))
+        fit = simulate_pk_deconvolution_model(t_h, mean_cp, model_name, disposition, parameter_table=(None if parameter_tables is None else parameter_tables.get(model_name)), fit_options=fit_options)
         fits[model_name] = fit
         _progress_update(progress_callback, step, total_steps, f"Applying {model_name} initial values, Error = {fit['rss']:.6g}")
         results.append({"Model": model_name, "AIC": fit["aic"], "BIC": fit["bic"], "RSS": fit["rss"], "R²": fit["r2"]})
@@ -2256,6 +2407,7 @@ def simulate_pk_deconvolution_suite(pk_df, time_unit_label, disposition, paramet
         "model_names": selected_models,
         "parameter_tables_used": {m: fits[m].get("editor_table") for m in selected_models if m in fits},
         "result_mode": "initial_test",
+        "fit_options": _normalize_fit_options(fit_options),
     }
 
 
@@ -2265,9 +2417,9 @@ def plot_deconvolution_pk_fit(pack):
     df = pack["input_df"]
     t = df["Time_input"].to_numpy(dtype=float)
     for col in pack["cp_cols"]:
-        ax.plot(t, df[col].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linewidth=max(0.8, cfg["aux_line_width"]))
+        ax.plot(t, df[col].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.25, linestyle="None", marker="o", markersize=max(3, int(cfg["marker_size"] ** 0.45)))
     mean_df = pack["mean_pk_df"]
-    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linewidth=cfg["line_width"], label="Observed mean Cp")
+    ax.plot(mean_df["Time_input"], mean_df["Mean Cp"], marker="o", color=cfg["primary_color"], linewidth=0.0, linestyle="None", label="Observed mean Cp")
     mode = pack.get("result_mode", "fit")
     curve_label = f"{pack['best_model']} initial-test Cp" if mode == "initial_test" else f"Fitted {pack['best_model']} Cp"
     title = f"Observed and initial-test PK profile ({pack['best_model']})" if mode == "initial_test" else f"Observed and fitted PK profile ({pack['best_model']})"
@@ -2348,8 +2500,17 @@ def _render_deconvolution_tool():
         st.empty()
     with top3[5]:
         st.empty()
+    top4 = st.columns([1, 1, 1.2, 2.8])
+    with top4[0]:
+        deconv_fit_scale = st.selectbox("Fit scale", FIT_SCALE_OPTIONS, index=0, key="deconv_fit_scale")
+    with top4[1]:
+        deconv_weight_power = st.selectbox("Weight power", WEIGHT_POWER_OPTIONS, index=0, key="deconv_weight_power")
+    with top4[2]:
+        deconv_weight_source = st.selectbox("Weight source", WEIGHT_SOURCE_OPTIONS, index=0, key="deconv_weight_source", disabled=(float(deconv_weight_power) == 1.0))
+    with top4[3]:
+        st.empty()
 
-    st.caption("The selected input time unit is converted internally so all fitting and stored parameters are in hours. During fitting, the status line now updates with the current best error so the user can see that the optimizer is moving. 'Initial Test (No Fit)' applies the current table values directly and plots the resulting profile without optimization.")
+    st.caption("The selected input time unit is converted internally so all fitting and stored parameters are in hours. During fitting, the status line now updates with the current best error so the user can see that the optimizer is moving. 'Initial Test (No Fit)' applies the current table values directly and plots the resulting profile without optimization. Weighting follows a Phoenix-style workflow: unweighted by default, or power weighting on observed or predicted Y. Log(Y) fitting is also available.")
 
     parameter_tables = {}
     with st.expander("Parameter bounds, starting values, and fixed parameters", expanded=True):
@@ -2392,12 +2553,14 @@ def _render_deconvolution_tool():
                 _cb = _progress_callback_factory(progress_bar, status_holder)
 
                 if run_initial_test:
-                    initial_pack = simulate_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_tables=parameter_tables, model_choice=model_choice, progress_callback=_cb)
+                    fit_options = {"fit_scale": deconv_fit_scale, "weight_power": deconv_weight_power, "weight_source": deconv_weight_source}
+                    initial_pack = simulate_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_tables=parameter_tables, model_choice=model_choice, fit_options=fit_options, progress_callback=_cb)
                     st.session_state["deconv_last_initial_pack"] = initial_pack
                     progress_bar.progress(1.0)
                     status_holder.markdown(f"Finished initial test. Lowest current error: {initial_pack['summary_df'].iloc[0]['RSS']:.6g} ({initial_pack['best_model']}).")
                 if run_deconv:
-                    pack = fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_tables=parameter_tables, model_choice=model_choice, progress_callback=_cb)
+                    fit_options = {"fit_scale": deconv_fit_scale, "weight_power": deconv_weight_power, "weight_source": deconv_weight_source}
+                    pack = fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_tables=parameter_tables, model_choice=model_choice, fit_options=fit_options, progress_callback=_cb)
                     st.session_state["deconv_last_pack"] = pack
                     progress_bar.progress(1.0)
                     status_holder.markdown(f"Finished PK deconvolution fit. Best model: {pack['best_model']}.")
@@ -2563,6 +2726,14 @@ def render():
             profile_title = st.text_input("Profile plot title", value="Dissolution Profiles")
         with p2:
             y_label = st.text_input("Y label", value="% Dissolved")
+        w1, w2, w3 = st.columns([1, 1, 1.2])
+        with w1:
+            _f2_fit_scale = st.selectbox("Fit scale", FIT_SCALE_OPTIONS, index=0, key="f2_fit_scale", disabled=True)
+        with w2:
+            _f2_weight_power = st.selectbox("Weight power", WEIGHT_POWER_OPTIONS, index=0, key="f2_weight_power", disabled=True)
+        with w3:
+            _f2_weight_source = st.selectbox("Weight source", WEIGHT_SOURCE_OPTIONS, index=0, key="f2_weight_source", disabled=True)
+        st.caption("Weighted or log-transformed fitting is not applied in Dissolution Comparison (f₂), because this tool calculates profile similarity directly and does not fit a regression model.")
 
         if ref_text and test_text:
             try:
@@ -2759,11 +2930,18 @@ def render():
                 fit_bio = st.checkbox("Fit BIO", value=True)
             with o3:
                 fixed_bio = st.number_input("Fixed BIO", min_value=0.000001, value=1.000000, format="%.6f", key="ivivc_fixed_bio", disabled=fit_bio)
+            o4, o5, o6 = st.columns([1, 1, 1.2])
+            with o4:
+                ivivc_fit_scale = st.selectbox("Fit scale", FIT_SCALE_OPTIONS, index=0, key="ivivc_fit_scale")
+            with o5:
+                ivivc_weight_power = st.selectbox("Weight power", WEIGHT_POWER_OPTIONS, index=0, key="ivivc_weight_power")
+            with o6:
+                ivivc_weight_source = st.selectbox("Weight source", WEIGHT_SOURCE_OPTIONS, index=0, key="ivivc_weight_source", disabled=(float(ivivc_weight_power) == 1.0))
 
             if saved_invivo is not None:
-                st.caption("The saved in vitro Weibull model is transformed through the IVIVC time-scaling function t'' = B1 + B2·t^B3 and is fitted against the saved InVivoFit release profile. The PK table and the disposition settings are still used to back-predict the PK profile for validation and reporting.")
+                st.caption("The saved in vitro Weibull model is transformed through the IVIVC time-scaling function t'' = B1 + B2·t^B3 and is fitted against the saved InVivoFit release profile. The PK table and the disposition settings are still used to back-predict the PK profile for validation and reporting. Weighting follows a Phoenix-style workflow: unweighted by default, or power weighting on observed or predicted Y. Log(Y) fitting is also available.")
             else:
-                st.caption("The saved in vitro Weibull model is transformed through the paper-style time-scaling function t'' = B1 + B2·t^B3. Because no saved InVivoFit is currently available, the transformed profile is fitted directly against the PK profile through the compartment ODE system.")
+                st.caption("The saved in vitro Weibull model is transformed through the paper-style time-scaling function t'' = B1 + B2·t^B3. Because no saved InVivoFit is currently available, the transformed profile is fitted directly against the PK profile through the compartment ODE system. Weighting follows a Phoenix-style workflow: unweighted by default, or power weighting on observed or predicted Y. Log(Y) fitting is also available.")
 
             if saved_invivo is not None and fit_bio:
                 st.info("Fit BIO is disabled when the objective is the saved InVivoFit release profile, because BIO is not identifiable from the release-vs-release IVIVC mapping alone. The current Fixed BIO value is used only for PK back-prediction.")
@@ -2779,7 +2957,8 @@ def render():
                         disposition = _build_disposition_config(compartments, dose_value, dose_unit, v_value, v_unit, cp_unit, k10, k12, k21, k13, k31, bio=(1.0 if fit_bio else fixed_bio))
                         progress_bar, status_holder = _create_progress_display()
                         _cb = _progress_callback_factory(progress_bar, status_holder)
-                        pack = fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio, saved_invivo=saved_invivo, progress_callback=_cb)
+                        fit_options = {"fit_scale": ivivc_fit_scale, "weight_power": ivivc_weight_power, "weight_source": ivivc_weight_source}
+                        pack = fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio, saved_invivo=saved_invivo, fit_options=fit_options, progress_callback=_cb)
                         st.session_state["ivivc_last_pack"] = pack
                         progress_bar.progress(1.0)
                         status_holder.markdown(f"Finished IVIVC fit. Best target: {'Saved InVivoFit release' if pack.get('used_saved_invivo', False) else 'PK profile'}.")
@@ -2872,7 +3051,14 @@ def render():
             decimals = st.slider("Decimals", 1, 8, 3, key="weibull_dec_ivivc")
         with u3:
             model_choice = st.selectbox("Weibull model(s) to fit", MODEL_CHOICE_OPTIONS, index=0, key="weibull_fit_model_choice")
-        st.caption("The selected input time unit is converted internally so all fitting, stored parameters, and reports are in hours. Fmax is constrained to a maximum of 100, and the Triple Weibull fit enforces f1 + f2 ≤ 1 so the implied third fraction remains valid.")
+        w1, w2, w3 = st.columns([1, 1, 1.2])
+        with w1:
+            weibull_fit_scale = st.selectbox("Fit scale", FIT_SCALE_OPTIONS, index=0, key="weibull_fit_scale")
+        with w2:
+            weibull_weight_power = st.selectbox("Weight power", WEIGHT_POWER_OPTIONS, index=0, key="weibull_weight_power")
+        with w3:
+            weibull_weight_source = st.selectbox("Weight source", WEIGHT_SOURCE_OPTIONS, index=0, key="weibull_weight_source", disabled=(float(weibull_weight_power) == 1.0))
+        st.caption("The selected input time unit is converted internally so all fitting, stored parameters, and reports are in hours. Fmax is constrained to a maximum of 100, and the Triple Weibull fit enforces f1 + f2 ≤ 1 so the implied third fraction remains valid. Weighting follows a Phoenix-style workflow: unweighted by default, or power weighting on observed or predicted Y. Log(Y) fitting is also available.")
 
         if fit_text:
             try:
@@ -2897,7 +3083,8 @@ def render():
 
                 progress_bar, status_holder = _create_progress_display()
                 _cb = _progress_callback_factory(progress_bar, status_holder)
-                fit_pack = fit_weibull_suite(fit_df, time_unit_label, parameter_tables=parameter_tables, model_choice=model_choice, progress_callback=_cb)
+                fit_options = {"fit_scale": weibull_fit_scale, "weight_power": weibull_weight_power, "weight_source": weibull_weight_source}
+                fit_pack = fit_weibull_suite(fit_df, time_unit_label, parameter_tables=parameter_tables, model_choice=model_choice, fit_options=fit_options, progress_callback=_cb)
                 progress_bar.progress(1.0)
                 status_holder.markdown(f"Finished Weibull fitting. Best model: {fit_pack['best_model']}.")
                 summary_df = fit_pack["summary_df"]

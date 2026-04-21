@@ -1041,11 +1041,11 @@ def dis_plot_profiles(ref_df, test_df, ref_summary, test_summary, selected, show
     c_ref = cfg["primary_color"]; c_test = cfg["secondary_color"]; sel_ms = max(40, int(cfg["marker_size"] * 1.8))
     if show_units:
         for c in dis_get_unit_cols(ref_df):
-            ax.plot(ref_df["Time"], ref_df[c], color=c_ref, alpha=0.15, linewidth=max(0.8, cfg["aux_line_width"]))
+            ax.plot(ref_df["Time"], ref_df[c], color=c_ref, alpha=0.15, linestyle="None", marker="o", markersize=max(2, int(cfg["marker_size"] ** 0.4)))
         for c in dis_get_unit_cols(test_df):
-            ax.plot(test_df["Time"], test_df[c], color=c_test, alpha=0.15, linewidth=max(0.8, cfg["aux_line_width"]))
-    ax.plot(ref_summary["Time"], ref_summary["mean"], marker="o", color=c_ref, linewidth=cfg["line_width"], markersize=max(4, int(cfg["marker_size"] ** 0.5)), linestyle=cfg["line_style"], label="Reference Mean")
-    ax.plot(test_summary["Time"], test_summary["mean"], marker="o", color=c_test, linewidth=cfg["line_width"], markersize=max(4, int(cfg["marker_size"] ** 0.5)), linestyle=cfg["line_style"], label="Test Mean")
+            ax.plot(test_df["Time"], test_df[c], color=c_test, alpha=0.15, linestyle="None", marker="o", markersize=max(2, int(cfg["marker_size"] ** 0.4)))
+    ax.plot(ref_summary["Time"], ref_summary["mean"], marker="o", color=c_ref, linewidth=0.0, markersize=max(4, int(cfg["marker_size"] ** 0.5)), linestyle="None", label="Reference Mean")
+    ax.plot(test_summary["Time"], test_summary["mean"], marker="o", color=c_test, linewidth=0.0, markersize=max(4, int(cfg["marker_size"] ** 0.5)), linestyle="None", label="Test Mean")
     ax.scatter(selected["Time"], selected["mean_ref"], marker="s", edgecolor="black", facecolor="none", s=sel_ms, linewidth=1.2, label="Selected Ref Points", zorder=4)
     ax.scatter(selected["Time"], selected["mean_test"], marker="s", edgecolor="black", facecolor="none", s=sel_ms, linewidth=1.2, label="Selected Test Points", zorder=4)
     apply_ax_style(ax, title, "Time", ylabel, legend=True, plot_key="Dissolution comparison")
