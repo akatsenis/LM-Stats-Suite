@@ -517,8 +517,8 @@ def _render_copy_table_button(df, html_payload, caption=""):
     button_label = "Copy table"
     button_html = f"""
     <div style="display:flex;justify-content:flex-end;margin:0.1rem 0 0.35rem 0;">
-      <button id="copy_table_btn" style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;padding:0.32rem 0.7rem;font-size:0.86rem;cursor:pointer;color:#111827;">{button_label}</button>
-      <span id="copy_status" style="margin-left:0.55rem;font-size:0.82rem;color:#475569;line-height:1.9;"></span>
+      <button id="copy_table_btn" style="background:#FFFFFF;border:1px solid #FFFFFF;border-radius:6px;padding:0.32rem 0.7rem;font-size:0.86rem;cursor:pointer;color:#FFFFFF;">{button_label}</button>
+      <span id="copy_status" style="margin-left:0.55rem;font-size:0.82rem;color:#FFFFFF;line-height:1.9;"></span>
     </div>
     <script>
     const htmlPayload = {json.dumps(html_payload)};

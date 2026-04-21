@@ -53,7 +53,7 @@ def render_word_friendly_tables(table_map, decimals):
             
             # Generate pure HTML and inject Word-friendly CSS
             html = fmt_df.to_html(index=False, escape=False)
-            html = html.replace('<table border="3" class="dataframe">', '<table style="border-collapse: collapse; width: 100%; font-family: Calibri, Arial, sans-serif; font-size: 11pt; border: 1px solid #d1d5db; color: #111827;">')
+            html = html.replace('<table border="1" class="dataframe">', '<table style="border-collapse: collapse; width: 100%; font-family: Calibri, Arial, sans-serif; font-size: 11pt; border: 1px solid #d1d5db; color: #111827;">')
             html = html.replace('<th>', '<th style="border: 1px solid #d1d5db; padding: 8px; text-align: left; background-color: #f3f4f6; font-weight: bold; border-bottom: 2px solid #9ca3af;">')
             html = html.replace('<td>', '<td style="border: 1px solid #d1d5db; padding: 6px 8px;">')
             
