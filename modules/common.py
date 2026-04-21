@@ -1,7 +1,9 @@
 import re
+import base64
 from io import StringIO, BytesIO
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -509,6 +511,44 @@ def show_figure(fig, caption="", explanation=None):
     st.pyplot(fig)
 
 
+def _table_copy_component(html_table, plain_text, key_suffix):
+    html_b64 = base64.b64encode(html_table.encode("utf-8")).decode("ascii")
+    text_b64 = base64.b64encode(plain_text.encode("utf-8")).decode("ascii")
+    button_id = f"copy_tbl_{key_suffix}"
+    msg_id = f"copy_msg_{key_suffix}"
+    payload = f"""
+    <div style="display:flex;align-items:center;gap:8px;margin:0.1rem 0 0.45rem 0;">
+      <button id="{button_id}" style="padding:0.28rem 0.7rem;border:1px solid #d1d5db;border-radius:0.45rem;background:#f8fafc;cursor:pointer;font-size:0.88rem;">Copy table</button>
+      <span id="{msg_id}" style="font-size:0.82rem;color:#6b7280;"></span>
+    </div>
+    <script>
+    const btn = document.getElementById("{button_id}");
+    const msg = document.getElementById("{msg_id}");
+    btn.onclick = async () => {{
+        const html = atob("{html_b64}");
+        const text = atob("{text_b64}");
+        try {{
+            if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {{
+                const item = new ClipboardItem({{
+                    'text/html': new Blob([html], {{type: 'text/html'}}),
+                    'text/plain': new Blob([text], {{type: 'text/plain'}})
+                }});
+                await navigator.clipboard.write([item]);
+            }} else if (navigator.clipboard && navigator.clipboard.writeText) {{
+                await navigator.clipboard.writeText(text);
+            }} else {{
+                throw new Error('Clipboard not available');
+            }}
+            msg.textContent = 'Copied';
+        }} catch (err) {{
+            msg.textContent = 'Clipboard blocked — use the HTML download';
+        }}
+    }};
+    </script>
+    """
+    components.html(payload, height=42)
+
+
 def report_table(df, caption="", decimals=None):
     decimals = DEFAULT_DECIMALS if decimals is None else decimals
     info_box(_auto_explanation_text(caption or "current table", kind="table"))
@@ -518,7 +558,23 @@ def report_table(df, caption="", decimals=None):
         {"selector": "tbody td", "props": [("padding", "8px 12px"), ("text-align", "center")]},
         {"selector": "tbody tr:last-child td", "props": [("border-bottom", "2px solid #111827")]},
     ]).format(precision=decimals, na_rep="-")
-    st.markdown(f"<div class='report-table'>{styled.to_html()}</div>", unsafe_allow_html=True)
+    table_html = styled.to_html()
+    plain_df = df.copy()
+    for c in plain_df.columns:
+        if pd.api.types.is_numeric_dtype(plain_df[c]):
+            plain_df[c] = plain_df[c].map(lambda x: "-" if pd.isna(x) else f"{x:.{decimals}f}")
+        else:
+            plain_df[c] = plain_df[c].fillna("-").astype(str)
+    plain_text = plain_df.to_csv(sep="	", index=False)
+    key_suffix = abs(hash((caption, tuple(df.columns), df.shape)))
+    ctl1, ctl2, _ = st.columns([1.25, 1.6, 4.15])
+    with ctl1:
+        _table_copy_component(table_html, plain_text, key_suffix)
+    with ctl2:
+        html_doc = f"<html><head><meta charset='utf-8'></head><body>{table_html}</body></html>"
+        safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", caption or "table").strip("_") or "table"
+        st.download_button("Download HTML", data=html_doc.encode("utf-8"), file_name=f"{safe_name}.html", mime="text/html", key=f"tbl_dl_{key_suffix}")
+    st.markdown(f"<div class='report-table'>{table_html}</div>", unsafe_allow_html=True)
 
 
 def make_excel_bytes(sheet_map):
