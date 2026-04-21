@@ -10,7 +10,7 @@ st.markdown(
 
     **Available suites**
     - **📊 Stats Suite** for descriptive statistics, regression, shelf-life analysis, hypothesis testing, ANOVA, intervals, and PCA
-    - **💊 IVIVC Suite** for dissolution similarity today, with room for additional IVIVC tools later
+    - **💊 IVIVC Suite** for dissolution similarity (f2) and additional IVIVC tools
     - **🧪 DoE Studio** for process, mixture, mixture-process, and co-solvent experimental design work
 
     Use the sidebar to move between pages.
