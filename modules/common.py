@@ -1,5 +1,6 @@
 import re
 import json
+import html
 from io import StringIO, BytesIO
 
 import streamlit as st
@@ -512,6 +513,75 @@ def show_figure(fig, caption="", explanation=None):
     st.pyplot(fig)
 
 
+def _format_word_table_value(value, decimals):
+    if pd.isna(value):
+        return "-"
+    if isinstance(value, (np.integer, int)):
+        return f"{int(value)}"
+    if isinstance(value, (np.floating, float)):
+        return f"{float(value):.{decimals}f}"
+    return str(value)
+
+
+def build_word_friendly_table_html(df, caption="", decimals=None):
+    decimals = DEFAULT_DECIMALS if decimals is None else decimals
+
+    title_html = ""
+    if caption:
+        title_html = (
+            "<div style=\"font-family:'Times New Roman', Times, serif; font-size:10pt; font-weight:700; "
+            "color:#000000; margin:0 0 4px 0;\">"
+            f"{html.escape(str(caption))}"
+            "</div>"
+        )
+
+    header_cells = []
+    for col in df.columns:
+        header_cells.append(
+            "<th style=\"font-family:'Times New Roman', Times, serif; font-size:10pt; font-weight:700; "
+            "text-align:center; padding:4px 10px; background-color:#ffffff; color:#000000; "
+            "border-top:none; border-left:none; border-right:none; border-bottom:2px solid #000000;\">"
+            f"{html.escape(str(col))}"
+            "</th>"
+        )
+
+    body_rows = []
+    n_rows = len(df)
+    for i, (_, row) in enumerate(df.iterrows()):
+        is_last_row = i == n_rows - 1
+        row_cells = []
+        for value in row:
+            display = html.escape(_format_word_table_value(value, decimals))
+            border_bottom = "2px solid #000000" if is_last_row else "none"
+            row_cells.append(
+                "<td style=\"font-family:'Times New Roman', Times, serif; font-size:10pt; font-weight:400; "
+                "text-align:center; padding:4px 10px; color:#000000; "
+                "border-top:none; border-left:none; border-right:none; "
+                f"border-bottom:{border_bottom};\">"
+                f"{display}"
+                "</td>"
+            )
+        body_rows.append("<tr>" + "".join(row_cells) + "</tr>")
+
+    if not body_rows:
+        body_rows.append(
+            '<tr><td colspan="{}" style="font-family:\'Times New Roman\', Times, serif; font-size:10pt; '
+            'padding:4px 10px; text-align:center; border-top:none; border-left:none; border-right:none; '
+            'border-bottom:2px solid #000000; color:#000000;">-</td></tr>'.format(max(1, len(df.columns)))
+        )
+
+    table_html = (
+        "<table style=\"width:100%; border-collapse:collapse; border-spacing:0; "
+        "font-family:'Times New Roman', Times, serif; font-size:10pt; color:#000000; "
+        "border-top:none; border-left:none; border-right:none; border-bottom:none; "
+        "mso-table-lspace:0pt; mso-table-rspace:0pt;\">"
+        "<thead><tr>" + "".join(header_cells) + "</tr></thead>"
+        "<tbody>" + "".join(body_rows) + "</tbody></table>"
+    )
+
+    return title_html + table_html
+
+
 def _render_copy_table_button(df, html_payload, caption=""):
     plain_text = df.to_csv(sep="	", index=False)
     button_label = "Copy table"
@@ -558,13 +628,7 @@ def _render_copy_table_button(df, html_payload, caption=""):
 def report_table(df, caption="", decimals=None):
     decimals = DEFAULT_DECIMALS if decimals is None else decimals
     info_box(_auto_explanation_text(caption or "current table", kind="table"))
-    styled = df.style.hide(axis="index").set_caption(caption).set_table_styles([
-        {"selector": "caption", "props": [("text-align", "left"), ("font-size", "1rem"), ("font-weight", "700"), ("margin-bottom", "0.55rem")]},
-        {"selector": "thead th", "props": [("border-top", "2px solid #111827"), ("border-bottom", "1px solid #111827"), ("padding", "8px 12px"), ("text-align", "center"), ("background-color", "#f8fafc")]},
-        {"selector": "tbody td", "props": [("padding", "8px 12px"), ("text-align", "center")]},
-        {"selector": "tbody tr:last-child td", "props": [("border-bottom", "2px solid #111827")]},
-    ]).format(precision=decimals, na_rep="-")
-    html_table = styled.to_html()
+    html_table = build_word_friendly_table_html(df, caption=caption, decimals=decimals)
     _render_copy_table_button(df, html_table, caption=caption)
     st.markdown(f"<div class='report-table'>{html_table}</div>", unsafe_allow_html=True)
 
