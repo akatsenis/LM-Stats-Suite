@@ -1,5 +1,5 @@
 import re
-import base64
+import json
 from io import StringIO, BytesIO
 
 import streamlit as st
@@ -72,6 +72,7 @@ def init_page(page_title="lm Stats"):
 
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 def inject_css():
     st.markdown(
@@ -511,42 +512,47 @@ def show_figure(fig, caption="", explanation=None):
     st.pyplot(fig)
 
 
-def _table_copy_component(html_table, plain_text, key_suffix):
-    html_b64 = base64.b64encode(html_table.encode("utf-8")).decode("ascii")
-    text_b64 = base64.b64encode(plain_text.encode("utf-8")).decode("ascii")
-    button_id = f"copy_tbl_{key_suffix}"
-    msg_id = f"copy_msg_{key_suffix}"
-    payload = f"""
-    <div style="display:flex;align-items:center;gap:8px;margin:0.1rem 0 0.45rem 0;">
-      <button id="{button_id}" style="padding:0.28rem 0.7rem;border:1px solid #d1d5db;border-radius:0.45rem;background:#f8fafc;cursor:pointer;font-size:0.88rem;">Copy table</button>
-      <span id="{msg_id}" style="font-size:0.82rem;color:#6b7280;"></span>
+def _render_copy_table_button(df, html_payload, caption=""):
+    plain_text = df.to_csv(sep="	", index=False)
+    button_label = "Copy table"
+    button_html = f"""
+    <div style="display:flex;justify-content:flex-end;margin:0.1rem 0 0.35rem 0;">
+      <button id="copy_table_btn" style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;padding:0.32rem 0.7rem;font-size:0.86rem;cursor:pointer;color:#111827;">{button_label}</button>
+      <span id="copy_status" style="margin-left:0.55rem;font-size:0.82rem;color:#475569;line-height:1.9;"></span>
     </div>
     <script>
-    const btn = document.getElementById("{button_id}");
-    const msg = document.getElementById("{msg_id}");
-    btn.onclick = async () => {{
-        const html = atob("{html_b64}");
-        const text = atob("{text_b64}");
-        try {{
-            if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {{
-                const item = new ClipboardItem({{
-                    'text/html': new Blob([html], {{type: 'text/html'}}),
-                    'text/plain': new Blob([text], {{type: 'text/plain'}})
-                }});
-                await navigator.clipboard.write([item]);
-            }} else if (navigator.clipboard && navigator.clipboard.writeText) {{
-                await navigator.clipboard.writeText(text);
-            }} else {{
-                throw new Error('Clipboard not available');
-            }}
-            msg.textContent = 'Copied';
-        }} catch (err) {{
-            msg.textContent = 'Clipboard blocked — use the HTML download';
+    const htmlPayload = {json.dumps(html_payload)};
+    const textPayload = {json.dumps(plain_text)};
+    const btn = document.getElementById('copy_table_btn');
+    const status = document.getElementById('copy_status');
+    async function copyTable() {{
+      try {{
+        if (navigator.clipboard && window.ClipboardItem) {{
+          const item = new ClipboardItem({{
+            'text/html': new Blob([htmlPayload], {{type: 'text/html'}}),
+            'text/plain': new Blob([textPayload], {{type: 'text/plain'}})
+          }});
+          await navigator.clipboard.write([item]);
+        }} else if (navigator.clipboard) {{
+          await navigator.clipboard.writeText(textPayload);
+        }} else {{
+          const ta = document.createElement('textarea');
+          ta.value = textPayload;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
         }}
-    }};
+        status.textContent = 'Copied';
+        setTimeout(() => status.textContent = '', 1400);
+      }} catch (err) {{
+        status.textContent = 'Copy failed';
+      }}
+    }}
+    btn.addEventListener('click', copyTable);
     </script>
     """
-    components.html(payload, height=42)
+    components.html(button_html, height=38)
 
 
 def report_table(df, caption="", decimals=None):
@@ -558,23 +564,9 @@ def report_table(df, caption="", decimals=None):
         {"selector": "tbody td", "props": [("padding", "8px 12px"), ("text-align", "center")]},
         {"selector": "tbody tr:last-child td", "props": [("border-bottom", "2px solid #111827")]},
     ]).format(precision=decimals, na_rep="-")
-    table_html = styled.to_html()
-    plain_df = df.copy()
-    for c in plain_df.columns:
-        if pd.api.types.is_numeric_dtype(plain_df[c]):
-            plain_df[c] = plain_df[c].map(lambda x: "-" if pd.isna(x) else f"{x:.{decimals}f}")
-        else:
-            plain_df[c] = plain_df[c].fillna("-").astype(str)
-    plain_text = plain_df.to_csv(sep="	", index=False)
-    key_suffix = abs(hash((caption, tuple(df.columns), df.shape)))
-    ctl1, ctl2, _ = st.columns([1.25, 1.6, 4.15])
-    with ctl1:
-        _table_copy_component(table_html, plain_text, key_suffix)
-    with ctl2:
-        html_doc = f"<html><head><meta charset='utf-8'></head><body>{table_html}</body></html>"
-        safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", caption or "table").strip("_") or "table"
-        st.download_button("Download HTML", data=html_doc.encode("utf-8"), file_name=f"{safe_name}.html", mime="text/html", key=f"tbl_dl_{key_suffix}")
-    st.markdown(f"<div class='report-table'>{table_html}</div>", unsafe_allow_html=True)
+    html_table = styled.to_html()
+    _render_copy_table_button(df, html_table, caption=caption)
+    st.markdown(f"<div class='report-table'>{html_table}</div>", unsafe_allow_html=True)
 
 
 def make_excel_bytes(sheet_map):
@@ -1094,16 +1086,15 @@ def dis_percentile_interval(boot_vals, conf=0.90):
 def dis_plot_profiles(ref_df, test_df, ref_summary, test_summary, selected, show_units=True, title="Dissolution Profiles", ylabel="% Dissolved"):
     cfg = safe_get_plot_cfg("Dissolution comparison")
     fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
-    c_ref = cfg["primary_color"]; c_test = cfg["secondary_color"]; sel_ms = max(40, int(cfg["marker_size"] * 1.8))
+    c_ref = cfg["primary_color"]
+    c_test = cfg["secondary_color"]
     if show_units:
         for c in dis_get_unit_cols(ref_df):
-            ax.plot(ref_df["Time"], ref_df[c], color=c_ref, alpha=0.15, linestyle="None", marker="o", markersize=max(2, int(cfg["marker_size"] ** 0.4)))
+            ax.plot(ref_df["Time"], ref_df[c], color=c_ref, alpha=0.15, linewidth=max(0.8, cfg["aux_line_width"]))
         for c in dis_get_unit_cols(test_df):
-            ax.plot(test_df["Time"], test_df[c], color=c_test, alpha=0.15, linestyle="None", marker="o", markersize=max(2, int(cfg["marker_size"] ** 0.4)))
-    ax.plot(ref_summary["Time"], ref_summary["mean"], marker="o", color=c_ref, linewidth=0.0, markersize=max(4, int(cfg["marker_size"] ** 0.5)), linestyle="None", label="Reference Mean")
-    ax.plot(test_summary["Time"], test_summary["mean"], marker="o", color=c_test, linewidth=0.0, markersize=max(4, int(cfg["marker_size"] ** 0.5)), linestyle="None", label="Test Mean")
-    ax.scatter(selected["Time"], selected["mean_ref"], marker="s", edgecolor="black", facecolor="none", s=sel_ms, linewidth=1.2, label="Selected Ref Points", zorder=4)
-    ax.scatter(selected["Time"], selected["mean_test"], marker="s", edgecolor="black", facecolor="none", s=sel_ms, linewidth=1.2, label="Selected Test Points", zorder=4)
+            ax.plot(test_df["Time"], test_df[c], color=c_test, alpha=0.15, linewidth=max(0.8, cfg["aux_line_width"]))
+    ax.plot(ref_summary["Time"], ref_summary["mean"], marker="o", color=c_ref, linewidth=cfg["line_width"], markersize=max(4, int(cfg["marker_size"] ** 0.5)), linestyle=cfg["line_style"], label="Reference Mean")
+    ax.plot(test_summary["Time"], test_summary["mean"], marker="o", color=c_test, linewidth=cfg["line_width"], markersize=max(4, int(cfg["marker_size"] ** 0.5)), linestyle=cfg["line_style"], label="Test Mean")
     apply_ax_style(ax, title, "Time", ylabel, legend=True, plot_key="Dissolution comparison")
     return fig
 

@@ -677,21 +677,15 @@ def fit_weibull_model(t_h, y, model_name, parameter_tables=None, fit_options=Non
 
     progress_state = {"calls": 0, "best_err": np.inf}
 
-    def _emit_progress(err_val, stage="optimizing"):
+    def _emit_progress(err_val):
         if progress_callback is None:
             return
         err_val = float(err_val)
-        prefix = progress_label or f"Fitting {model_name}"
-        stage_txt = {
-            "optimizing": "optimizing",
-            "post": "computing AIC / confidence stats",
-            "done": "finished model fit",
-        }.get(stage, stage)
         if np.isfinite(err_val):
             progress_state["best_err"] = min(progress_state["best_err"], err_val)
-            msg = f"{prefix}, Error = {progress_state['best_err']:.6g} — {stage_txt}"
+            msg = f"{progress_label or f'Fitting {model_name}'}, Error = {progress_state['best_err']:.6g}"
         else:
-            msg = f"{prefix}, Error = — — {stage_txt}"
+            msg = f"{progress_label or f'Fitting {model_name}'}, Error = —"
         progress_callback(0 if progress_step is None else progress_step, 1 if progress_total is None else progress_total, msg)
 
     best = None
@@ -717,7 +711,7 @@ def fit_weibull_model(t_h, y, model_name, parameter_tables=None, fit_options=Non
             yhat = spec["func"](t_h, *popt)
             rss = _objective_ss(y, yhat, fit_options)
             raw_rss = float(np.sum((y - yhat) ** 2))
-            _emit_progress(rss, stage="post")
+            _emit_progress(rss)
             infer = _infer_parameter_statistics(model_name, t_h, y, popt, lb, ub, fit_options=fit_options)
             n = len(_objective_residuals(y, yhat, fit_options))
             k = len(popt)
@@ -928,7 +922,7 @@ def plot_best_model_profile(df, fit_pack, time_unit_label):
     time_col = df["Time_input"].to_numpy(dtype=float)
     rep_cols = fit_pack["replicate_cols"]
     for rep in rep_cols:
-        ax.plot(time_col, df[rep].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.22, linestyle="None", marker="o", markersize=max(3, int(cfg["marker_size"] ** 0.45)))
+        ax.plot(time_col, df[rep].to_numpy(dtype=float), color=cfg["secondary_color"], alpha=0.22, linewidth=max(0.8, cfg["aux_line_width"]))
     mean_df = fit_pack["mean_profile_df"]
     ax.plot(time_col, mean_df["Mean"], marker="o", color=cfg["primary_color"], linewidth=0.0, linestyle="None", label="Observed mean")
     best = fit_pack["best_model"]
@@ -1711,12 +1705,11 @@ def fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_ta
         fit = fit_pk_deconvolution_model(t_h, mean_cp, model_name, disposition, parameter_table=(None if parameter_tables is None else parameter_tables.get(model_name)))
         fits[model_name] = fit
         results.append({"Model": model_name, "AIC": fit["aic"], "BIC": fit["bic"], "RSS": fit["rss"], "R²": fit["r2"]})
-    _progress_update(progress_callback, step, total_steps, "Comparing successful PK models by AIC / BIC")
     summary_df = pd.DataFrame(results).sort_values("AIC").reset_index(drop=True)
     best_model = summary_df.iloc[0]["Model"]
     best_fit = fits[best_model]
     step += 1
-    _progress_update(progress_callback, step, total_steps, f"Summarizing best PK deconvolution model ({best_model}) and building output tables")
+    _progress_update(progress_callback, step, total_steps, f"Summarizing best PK deconvolution model ({best_model})")
     if disposition["compartments"] == 1:
         wn = wagner_nelson_fraction(t_h, mean_cp, disposition["k10"])
     else:
@@ -1781,11 +1774,11 @@ def plot_pk_mean_profile_errorbars(pack, title="PK mean profile with error bars"
         df["Time_input"],
         df["Mean Cp"],
         yerr=yerr,
-        fmt="o-",
+        fmt="o",
         capsize=3,
         color=cfg["primary_color"],
         linewidth=max(1.0, cfg["aux_line_width"]),
-        linestyle="-",
+        linestyle="None",
         label="Mean Cp ± SE",
     )
     apply_ax_style(ax, title, f"Time ({pack['time_unit_label']})", f"Cp ({pack['disposition']['cp_unit']})", legend=True, plot_key="Dissolution comparison")
@@ -1844,18 +1837,6 @@ def _evaluate_saved_invivo_cumfrac(t_h, saved_invivo):
         params = [param_map[k] for k in order]
         return _cumfrac_weibull_fmax(model_name, t_h, params)
     return np.full_like(t_h, np.nan, dtype=float)
-
-
-def _normalize_release_fraction(y):
-    arr = np.asarray(y, dtype=float).copy()
-    valid = np.isfinite(arr)
-    if not np.any(valid):
-        return arr, np.nan
-    ymax = float(np.nanmax(arr[valid]))
-    if not np.isfinite(ymax) or ymax <= 0:
-        return arr, ymax
-    arr[valid] = np.clip(arr[valid] / ymax, 0.0, 1.0)
-    return arr, ymax
 
 
 
@@ -2140,37 +2121,30 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
     release_target_obs = _evaluate_saved_invivo_cumfrac(t_h, saved_invivo)
     use_saved_invivo = saved_invivo is not None and np.isfinite(release_target_obs).any()
     fit_bio_effective = bool(fit_bio) and not use_saved_invivo
-    saved_invivo_release_scale = np.nan
 
     fit_t_h = np.asarray(t_h, dtype=float)
     release_target_fit = release_target_obs.copy()
     if use_saved_invivo:
-        release_target_obs, saved_invivo_release_scale = _normalize_release_fraction(release_target_obs)
         saved_t = np.asarray(saved_invivo.get("time_h", []), dtype=float)
         if len(saved_t) >= 2:
             fit_t_h = np.unique(np.r_[t_h, saved_t, np.linspace(0.0, max(float(np.max(saved_t)), float(np.max(t_h))), 250)])
             release_target_fit = _evaluate_saved_invivo_cumfrac(fit_t_h, saved_invivo)
-            release_target_fit, _ = _normalize_release_fraction(release_target_fit)
 
     p0, lb, ub, pnames = _ivivc_default_bounds(t_h, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio_effective)
     starts = _candidate_starts_ivivc(p0, lb, ub, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio_effective)
     progress_state = {"calls": 0, "best_err": np.inf}
 
-    def _emit_progress(err_val, stage="optimizing"):
+    def _emit_progress(err_val):
         if progress_callback is None:
             return
         err_val = float(err_val)
-        prefix = "Fitting IVIVC to saved InVivoFit release" if use_saved_invivo else "Fitting IVIVC to the PK profile"
-        stage_txt = {
-            "optimizing": "optimizing",
-            "post": "computing AIC / preparing back-prediction",
-            "done": "building release and PK summaries",
-        }.get(stage, stage)
         if np.isfinite(err_val):
             progress_state["best_err"] = min(progress_state["best_err"], err_val)
-            msg = f"{prefix}, Error = {progress_state['best_err']:.6g} — {stage_txt}"
+            prefix = "Fitting IVIVC to saved InVivoFit release" if use_saved_invivo else "Fitting IVIVC to the PK profile"
+            msg = f"{prefix}, Error = {progress_state['best_err']:.6g}"
         else:
-            msg = f"{prefix}, Error = — — {stage_txt}"
+            prefix = "Fitting IVIVC to saved InVivoFit release" if use_saved_invivo else "Fitting IVIVC to the PK profile"
+            msg = f"{prefix}, Error = —"
         progress_callback(0, 1, msg)
 
     best = None
@@ -2199,15 +2173,14 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
             if use_saved_invivo:
                 yhat = np.interp(fit_t_h, pred_release_fit_pack["t_grid_h"], pred_release_fit_pack["cumfrac_grid"])
                 target = np.asarray(release_target_fit, dtype=float)
-                yhat, _ = _normalize_release_fraction(yhat)
-                target_label = "Saved InVivoFit release profile (normalized to 100%)"
+                target_label = "Saved InVivoFit release profile"
             else:
                 yhat = pred_pack["cp_obs"]
                 target = mean_cp
                 target_label = "Observed PK profile"
             rss = _objective_ss(target, yhat, fit_options)
             raw_rss = float(np.sum((target - yhat) ** 2))
-            _emit_progress(rss, stage="post")
+            _emit_progress(rss)
             n = len(_objective_residuals(target, yhat, fit_options))
             k = len(res.x)
             aic = n * np.log(max(rss, 1e-12) / max(n, 1)) + 2 * k
@@ -2234,7 +2207,6 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
                     "fit_time_h": np.asarray(fit_t_h, dtype=float),
                     "used_saved_invivo": use_saved_invivo,
                     "fit_bio_effective": fit_bio_effective,
-                    "saved_invivo_release_scale": saved_invivo_release_scale,
                 }
         except Exception:
             continue
@@ -2247,14 +2219,11 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
 
     pk_tables = build_pk_study_tables(pk_df, time_unit_label, disposition["cp_unit"])
     deconv_individual_df, deconv_mean_df, deconv_method = build_ivivc_deconv_profiles(pk_df, time_unit_label, disposition)
-    ivivc_release_obs = np.interp(t_h, best["pred_pack"]["t_grid_h"], best["pred_pack"]["cumfrac_grid"])
-    if use_saved_invivo:
-        ivivc_release_obs, _ = _normalize_release_fraction(ivivc_release_obs)
     ref_release_df = pd.DataFrame({
         "Time_input": t_in,
         "Time_h": t_h,
         "Saved InVivoFit release (%)": release_target_obs * 100.0 if use_saved_invivo else np.full_like(t_h, np.nan, dtype=float),
-        "IVIVC transformed in vitro (%)": ivivc_release_obs * 100.0,
+        "IVIVC transformed in vitro (%)": np.interp(t_h, best["pred_pack"]["t_grid_h"], best["pred_pack"]["cumfrac_grid"]) * 100.0,
         "Mean deconvoluted Fabs (%)": deconv_mean_df["Mean Fabs"].to_numpy(dtype=float) * 100.0,
     })
 
@@ -2268,8 +2237,6 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
     else:
         fabs_ref = deconv_mean_df["Mean Fabs"].to_numpy(dtype=float)
     scaled_fdiss = np.interp(t_h, best["pred_pack"]["t_grid_h"], best["pred_pack"]["scaled_dissolution_frac"])
-    if use_saved_invivo:
-        scaled_fdiss, _ = _normalize_release_fraction(scaled_fdiss)
     correlation_df = pd.DataFrame({
         "Fdiss scaled (%)": scaled_fdiss * 100.0,
         "Fabs reference (%)": fabs_ref * 100.0,
@@ -2434,21 +2401,15 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table
 
     progress_state = {"calls": 0, "best_err": np.inf}
 
-    def _emit_progress(err_val, stage="optimizing"):
+    def _emit_progress(err_val):
         if progress_callback is None:
             return
         err_val = float(err_val)
-        stage_txt = {
-            "optimizing": "optimizing",
-            "post": "computing AIC / confidence stats",
-            "compare": "comparing candidate starts",
-            "done": "finished model fit",
-        }.get(stage, stage)
         if np.isfinite(err_val):
             progress_state["best_err"] = min(progress_state["best_err"], err_val)
-            msg = f"Fitting {model_name} to the mean PK profile, Error = {progress_state['best_err']:.6g} — {stage_txt}"
+            msg = f"Fitting {model_name} to the mean PK profile, Error = {progress_state['best_err']:.6g}"
         else:
-            msg = f"Fitting {model_name} to the mean PK profile, Error = — — {stage_txt}"
+            msg = f"Fitting {model_name} to the mean PK profile, Error = —"
         progress_callback(0 if progress_step is None else progress_step, 1 if progress_total is None else progress_total, msg)
 
     best = None
@@ -2463,7 +2424,7 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table
             if len(free_idx) == 0:
                 params_eval = _deconv_param_split(model_name, start_full)
                 resid = _deconv_residuals(params_eval, t_h, cp, model_name, disposition, fit_options=fit_options)
-                _emit_progress(np.sum(np.square(resid)), stage="post")
+                _emit_progress(np.sum(np.square(resid)))
                 infer = _deconv_infer_statistics(model_name, t_h, cp, params_eval, lb, ub, disposition, fit_options=fit_options)
             else:
                 start_free = np.asarray(start_full, dtype=float)[free_idx]
@@ -2483,7 +2444,7 @@ def fit_pk_deconvolution_model(t_h, cp, model_name, disposition, parameter_table
                     continue
                 params_eval = _expand_free(res.x, start_full)
                 final_resid = _deconv_residuals(params_eval, t_h, cp, model_name, disposition, fit_options=fit_options)
-                _emit_progress(np.sum(np.square(final_resid)), stage="post")
+                _emit_progress(np.sum(np.square(final_resid)))
                 infer = _deconv_infer_statistics(model_name, t_h, cp, params_eval, lb, ub, disposition, fit_options=fit_options)
 
             yhat = infer["yhat"]
@@ -2601,7 +2562,7 @@ def fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_ta
     pk_tables = build_pk_study_tables(pk_df, time_unit_label, disposition["cp_unit"])
     for model_name in selected_models:
         step += 1
-        _progress_update(progress_callback, step, total_steps, f"Fitting {model_name} to the mean PK profile, Error = — — optimizing")
+        _progress_update(progress_callback, step, total_steps, f"Fitting {model_name} to the mean PK profile, Error = —")
         try:
             fit = fit_pk_deconvolution_model(
                 t_h,
@@ -2625,12 +2586,11 @@ def fit_pk_deconvolution_suite(pk_df, time_unit_label, disposition, parameter_ta
         failure_text = "; ".join(f"{x['Model']}: {x['Reason']}" for x in failed_models)
         raise ValueError(f"None of the selected PK deconvolution models converged. {failure_text}")
 
-    _progress_update(progress_callback, step, total_steps, "Comparing successful PK models by AIC / BIC")
     summary_df = pd.DataFrame(results).sort_values("AIC").reset_index(drop=True)
     best_model = summary_df.iloc[0]["Model"]
     best_fit = fits[best_model]
     step += 1
-    _progress_update(progress_callback, step, total_steps, f"Summarizing best PK deconvolution model ({best_model}) and building output tables")
+    _progress_update(progress_callback, step, total_steps, f"Summarizing best PK deconvolution model ({best_model})")
     if disposition["compartments"] == 1:
         wn = wagner_nelson_fraction(t_h, mean_cp, disposition["k10"])
     else:
@@ -3222,7 +3182,7 @@ def render():
             with o1:
                 use_paper_defaults = st.checkbox("Use paper/code defaults (A1 = 0, A2 = 1, B1 = 0)", value=IVIVC_UI_DEFAULTS["use_paper_defaults"])
             with o2:
-                fit_bio = st.checkbox("Fit BIO", value=IVIVC_UI_DEFAULTS["fit_bio"], disabled=(saved_invivo is not None))
+                fit_bio = st.checkbox("Fit BIO", value=IVIVC_UI_DEFAULTS["fit_bio"])
             with o3:
                 fixed_bio = st.number_input("Fixed BIO", min_value=0.000001, value=IVIVC_UI_DEFAULTS["fixed_bio"], format="%.6f", key="ivivc_fixed_bio", disabled=fit_bio)
             o4, o5, o6 = st.columns([1, 1, 1.2])
@@ -3234,7 +3194,7 @@ def render():
                 ivivc_weight_source = st.selectbox("Weight source", WEIGHT_SOURCE_OPTIONS, index=0, key="ivivc_weight_source", disabled=(float(ivivc_weight_power) == 1.0))
 
             if saved_invivo is not None:
-                st.caption("The saved in vitro Weibull model is transformed through the IVIVC time-scaling function t'' = B1 + B2·t^B3 and is fitted against the saved InVivoFit release profile. When a saved InVivoFit is present, both the saved in vivo release and the transformed in vitro release are normalized to 100% for the release-space IVIVC comparison. The PK table and the disposition settings are still used to back-predict the PK profile for validation and reporting. Weighting follows a Phoenix-style workflow: unweighted by default, or power weighting on observed or predicted Y. Log(Y) fitting is also available.")
+                st.caption("The saved in vitro Weibull model is transformed through the IVIVC time-scaling function t'' = B1 + B2·t^B3 and is fitted against the saved InVivoFit release profile. The PK table and the disposition settings are still used to back-predict the PK profile for validation and reporting. Weighting follows a Phoenix-style workflow: unweighted by default, or power weighting on observed or predicted Y. Log(Y) fitting is also available.")
             else:
                 st.caption("The saved in vitro Weibull model is transformed through the paper-style time-scaling function t'' = B1 + B2·t^B3. Because no saved InVivoFit is currently available, the transformed profile is fitted directly against the PK profile through the compartment ODE system. Weighting follows a Phoenix-style workflow: unweighted by default, or power weighting on observed or predicted Y. Log(Y) fitting is also available.")
 
@@ -3256,7 +3216,7 @@ def render():
                         pack = fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio, saved_invivo=saved_invivo, fit_options=fit_options, progress_callback=_cb)
                         st.session_state["ivivc_last_pack"] = pack
                         progress_bar.progress(1.0)
-                        status_holder.markdown(f"Finished IVIVC fit. Best target: {'Saved InVivoFit release' if pack.get('used_saved_invivo', False) else 'PK profile'} — summarizing tables and plots.")
+                        status_holder.markdown(f"Finished IVIVC fit. Best target: {'Saved InVivoFit release' if pack.get('used_saved_invivo', False) else 'PK profile'}.")
                     except Exception as e:
                         st.session_state.pop("ivivc_last_pack", None)
                         st.error(str(e))

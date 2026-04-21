@@ -42,7 +42,7 @@ def render_word_friendly_tables(table_map, decimals):
     """Renders DataFrames as inline HTML specifically formatted to paste perfectly into MS Word."""
     st.markdown("---")
     with st.expander("📄 Word-Friendly Tables (Copy & Paste to Word)"):
-        st.info("Highlight a table below, press **Ctrl+C** (or Cmd+C), and paste directly into Microsoft Word. Formatting will be preserved.")
+        st.info("Use the Copy table buttons above the main tables for direct copying. The HTML previews below can still be highlighted and pasted into Microsoft Word with formatting preserved.")
         for t_name, t_df in table_map.items():
             st.markdown(f"<div style='margin-bottom: 5px; margin-top: 15px; font-weight: bold; font-size: 16px; color: #1f2937;'>{t_name}</div>", unsafe_allow_html=True)
             
@@ -996,6 +996,11 @@ def render():
                             report_table(anova_tbl, "ANOVA", decimals)
                             info_box("This summary reports the pooled within-group variation and the fraction of total variability explained by between-sample differences.")
                             report_table(model_tbl, "Model summary (ANOVA)", decimals)
+                            if tukey_fig is not None:
+                                info_box("This Tukey HSD plot compares all sample pairs at once and helps identify which sample means differ from each other, not only from the reference.")
+                                show_figure(tukey_fig, "Tukey HSD simultaneous confidence intervals")
+                                figure_map["Tukey HSD simultaneous confidence intervals"] = fig_to_png_bytes(tukey_fig)
+                                plt.close(tukey_fig)
                             if not tests_tbl.empty:
                                 pair_msg = " Paired tests are also shown using complete row-wise pairs because paired analysis was requested." if paired_compare else ""
                                 info_box("These reference-based hypothesis tests compare each selected sample against the reference using Student's t-test, and, only when justified by diagnostics, Welch's t-test, Mann-Whitney, or Wilcoxon signed-rank." + pair_msg)
