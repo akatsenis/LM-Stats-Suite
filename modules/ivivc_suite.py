@@ -788,6 +788,74 @@ def _single_profile_detail_rows(model_name, fit):
 
 
 
+def _weibull_profile_interval_tables(fit_pack, alpha=0.05):
+    best_model = fit_pack["best_model"]
+    fit = fit_pack["mean_model_fits"][best_model]
+    mean_df = fit_pack["mean_profile_df"].copy()
+    func = MODEL_SPECS[best_model]["func"]
+    params = np.asarray(fit["params"], dtype=float)
+    cov = np.asarray(fit.get("covariance", np.full((len(params), len(params)), np.nan)), dtype=float)
+    dof = int(fit.get("dof", max(len(mean_df) - len(params), 0)))
+    raw_rss = float(fit.get("raw_rss", np.sum((mean_df["Mean"].to_numpy(dtype=float) - fit["yhat"]) ** 2)))
+    sigma2 = raw_rss / max(dof, 1) if dof > 0 else np.nan
+
+    def _func(tt, *pp):
+        return func(np.asarray(tt, dtype=float), *pp)
+
+    t_obs_h = mean_df["Time_h"].to_numpy(dtype=float)
+    yhat_obs = func(t_obs_h, *params)
+    J_obs = _numerical_jacobian(_func, t_obs_h, params, lb=fit.get("lb"), ub=fit.get("ub"))
+    if np.isfinite(cov).all():
+        var_mean_obs = np.einsum('ij,jk,ik->i', J_obs, cov, J_obs)
+    else:
+        var_mean_obs = np.full_like(yhat_obs, np.nan, dtype=float)
+    tcrit = stats.t.ppf(1.0 - alpha / 2.0, dof) if dof > 0 else np.nan
+    se_mean_obs = np.sqrt(np.clip(var_mean_obs, 0.0, None))
+    se_pred_obs = np.sqrt(np.clip(var_mean_obs + sigma2, 0.0, None)) if np.isfinite(sigma2) else np.full_like(se_mean_obs, np.nan)
+    ci_lo_obs = yhat_obs - tcrit * se_mean_obs if np.isfinite(tcrit) else np.full_like(yhat_obs, np.nan)
+    ci_hi_obs = yhat_obs + tcrit * se_mean_obs if np.isfinite(tcrit) else np.full_like(yhat_obs, np.nan)
+    pi_lo_obs = yhat_obs - tcrit * se_pred_obs if np.isfinite(tcrit) else np.full_like(yhat_obs, np.nan)
+    pi_hi_obs = yhat_obs + tcrit * se_pred_obs if np.isfinite(tcrit) else np.full_like(yhat_obs, np.nan)
+
+    obs_table = pd.DataFrame({
+        "Time_input": mean_df["Time_input"],
+        "Time_h": mean_df["Time_h"],
+        "Observed mean": mean_df["Mean"],
+        "Observed SD": mean_df["SD"],
+        "Observed SE": mean_df["SE"],
+        "Fitted": yhat_obs,
+        "95% CI lower": ci_lo_obs,
+        "95% CI upper": ci_hi_obs,
+        "95% PI lower": pi_lo_obs,
+        "95% PI upper": pi_hi_obs,
+    })
+
+    t_grid_h = np.linspace(float(np.min(t_obs_h)), float(np.max(t_obs_h)), 400)
+    yhat_grid = func(t_grid_h, *params)
+    J_grid = _numerical_jacobian(_func, t_grid_h, params, lb=fit.get("lb"), ub=fit.get("ub"))
+    if np.isfinite(cov).all():
+        var_mean_grid = np.einsum('ij,jk,ik->i', J_grid, cov, J_grid)
+    else:
+        var_mean_grid = np.full_like(yhat_grid, np.nan, dtype=float)
+    se_mean_grid = np.sqrt(np.clip(var_mean_grid, 0.0, None))
+    se_pred_grid = np.sqrt(np.clip(var_mean_grid + sigma2, 0.0, None)) if np.isfinite(sigma2) else np.full_like(se_mean_grid, np.nan)
+    ci_lo_grid = yhat_grid - tcrit * se_mean_grid if np.isfinite(tcrit) else np.full_like(yhat_grid, np.nan)
+    ci_hi_grid = yhat_grid + tcrit * se_mean_grid if np.isfinite(tcrit) else np.full_like(yhat_grid, np.nan)
+    pi_lo_grid = yhat_grid - tcrit * se_pred_grid if np.isfinite(tcrit) else np.full_like(yhat_grid, np.nan)
+    pi_hi_grid = yhat_grid + tcrit * se_pred_grid if np.isfinite(tcrit) else np.full_like(yhat_grid, np.nan)
+
+    grid_table = pd.DataFrame({
+        "Time_input": t_grid_h / max(float(fit_pack["time_factor"]), 1e-12),
+        "Time_h": t_grid_h,
+        "Fitted": yhat_grid,
+        "95% CI lower": ci_lo_grid,
+        "95% CI upper": ci_hi_grid,
+        "95% PI lower": pi_lo_grid,
+        "95% PI upper": pi_hi_grid,
+    })
+    return obs_table, grid_table
+
+
 def fit_weibull_suite(df, time_unit_label, parameter_tables=None, model_choice=None, fit_options=None, progress_callback=None):
     factor = TIME_UNIT_TO_HOURS[time_unit_label]
     t_in = df["Time_input"].to_numpy(dtype=float)
@@ -929,6 +997,18 @@ def plot_best_model_profile(df, fit_pack, time_unit_label):
     sub = fit_pack["curve_df"].loc[fit_pack["curve_df"]["Model"] == best]
     ax.plot(sub["Time_input"], sub["Predicted"], linewidth=cfg["line_width"] + 0.9, color=cfg["tertiary_color"], label=f"Fitted {best}")
     apply_ax_style(ax, f"Experimental and fitted profile ({best})", f"Time ({time_unit_label})", "% Dissolved", legend=True, plot_key="Dissolution comparison")
+    return fig
+
+
+def plot_best_model_profile_with_bands(fit_pack, time_unit_label):
+    cfg = safe_get_plot_cfg("Dissolution comparison")
+    fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
+    obs_table, grid_table = _weibull_profile_interval_tables(fit_pack)
+    ax.fill_between(grid_table["Time_input"], grid_table["95% PI lower"], grid_table["95% PI upper"], color=cfg["secondary_color"], alpha=0.12, label="95% PI")
+    ax.fill_between(grid_table["Time_input"], grid_table["95% CI lower"], grid_table["95% CI upper"], color=cfg["tertiary_color"], alpha=0.18, label="95% CI")
+    ax.plot(obs_table["Time_input"], obs_table["Observed mean"], marker="o", linestyle="None", color=cfg["primary_color"], label="Observed mean")
+    ax.plot(grid_table["Time_input"], grid_table["Fitted"], color=cfg["tertiary_color"], linewidth=cfg["line_width"] + 0.9, label=f"Fitted {fit_pack['best_model']}")
+    apply_ax_style(ax, f"Experimental and fitted profile with bands ({fit_pack['best_model']})", f"Time ({time_unit_label})", "% Dissolved", legend=True, plot_key="Dissolution comparison")
     return fig
 
 
@@ -1862,6 +1942,34 @@ def _ivivc_default_bounds(t_h, use_paper_defaults=True, fit_bio=False):
 
 
 
+def _ivivc_default_parameter_settings(use_paper_defaults=True):
+    return {
+        "A1": {"value": 0.0, "fix": bool(use_paper_defaults)},
+        "A2": {"value": 1.0, "fix": bool(use_paper_defaults)},
+        "B1": {"value": 0.0, "fix": bool(use_paper_defaults)},
+        "B2": {"value": 1.0, "fix": False},
+        "B3": {"value": 1.0, "fix": False},
+    }
+
+
+
+def _ivivc_prepare_parameter_settings(t_h, fit_bio=False, parameter_settings=None):
+    p0, lb, ub, names = _ivivc_default_bounds(t_h, use_paper_defaults=False, fit_bio=fit_bio)
+    fix_mask = np.zeros(len(names), dtype=bool)
+    settings = parameter_settings or {}
+    for idx, name in enumerate(names):
+        if name == "BIO":
+            continue
+        info = settings.get(name, {})
+        try:
+            val = float(info.get("value", p0[idx]))
+        except Exception:
+            val = float(p0[idx])
+        p0[idx] = float(np.clip(val, lb[idx], ub[idx]))
+        fix_mask[idx] = bool(info.get("fix", False))
+    return p0, lb, ub, names, fix_mask
+
+
 def _ivivc_expand_params(params, use_paper_defaults=True, fit_bio=False, fixed_bio=1.0):
     p = np.asarray(params, dtype=float)
     idx = 0
@@ -2111,7 +2219,7 @@ def _regression_stats(x, y):
 
 
 
-def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper_defaults=True, fit_bio=False, fixed_bio=1.0, saved_invivo=None, fit_options=None, progress_callback=None, progress_every=2):
+def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper_defaults=True, fit_bio=False, fixed_bio=1.0, saved_invivo=None, fit_options=None, progress_callback=None, progress_every=2, parameter_settings=None):
     factor = TIME_UNIT_TO_HOURS[time_unit_label]
     t_in = pk_df["Time_input"].to_numpy(dtype=float)
     t_h = t_in * factor
@@ -2130,8 +2238,21 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
             fit_t_h = np.unique(np.r_[t_h, saved_t, np.linspace(0.0, max(float(np.max(saved_t)), float(np.max(t_h))), 250)])
             release_target_fit = _evaluate_saved_invivo_cumfrac(fit_t_h, saved_invivo)
 
-    p0, lb, ub, pnames = _ivivc_default_bounds(t_h, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio_effective)
-    starts = _candidate_starts_ivivc(p0, lb, ub, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio_effective)
+    if parameter_settings is not None:
+        p0, lb, ub, pnames, fix_mask = _ivivc_prepare_parameter_settings(t_h, fit_bio=fit_bio_effective, parameter_settings=parameter_settings)
+        starts = _candidate_starts_ivivc(p0, lb, ub, use_paper_defaults=False, fit_bio=fit_bio_effective)
+    else:
+        p0, lb, ub, pnames = _ivivc_default_bounds(t_h, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio_effective)
+        starts = _candidate_starts_ivivc(p0, lb, ub, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio_effective)
+        fix_mask = np.zeros(len(p0), dtype=bool)
+    free_idx = np.flatnonzero(~fix_mask)
+
+    def _expand_free(x_free, base):
+        full = np.asarray(base, dtype=float).copy()
+        if len(free_idx):
+            full[free_idx] = np.asarray(x_free, dtype=float)
+        return full
+
     progress_state = {"calls": 0, "best_err": np.inf}
 
     def _emit_progress(err_val):
@@ -2150,26 +2271,41 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
     best = None
     for start in starts:
         try:
-            if use_saved_invivo:
-                def _resid_release_local(x):
-                    resid = _ivivc_residuals_release(x, fit_t_h, release_target_fit, saved_invitro, use_paper_defaults, fit_bio_effective, fixed_bio, fit_options=fit_options)
-                    progress_state["calls"] += 1
-                    if progress_state["calls"] <= 3 or progress_state["calls"] % max(int(progress_every), 1) == 0:
-                        _emit_progress(np.sum(np.square(resid)))
-                    return resid
-                res = least_squares(_resid_release_local, x0=start, bounds=(lb, ub), max_nfev=50000, method="trf")
+            start = np.asarray(start, dtype=float)
+            if len(free_idx) == 0:
+                params_eval = start.copy()
+                if use_saved_invivo:
+                    resid = _ivivc_residuals_release(params_eval, fit_t_h, release_target_fit, saved_invitro, False, fit_bio_effective, fixed_bio, fit_options=fit_options)
+                else:
+                    resid = _ivivc_residuals(params_eval, t_h, mean_cp, saved_invitro, disposition, False, fit_bio_effective, fixed_bio, fit_options=fit_options)
+                _emit_progress(np.sum(np.square(resid)))
             else:
-                def _resid_pk_local(x):
-                    resid = _ivivc_residuals(x, t_h, mean_cp, saved_invitro, disposition, use_paper_defaults, fit_bio_effective, fixed_bio, fit_options=fit_options)
-                    progress_state["calls"] += 1
-                    if progress_state["calls"] <= 3 or progress_state["calls"] % max(int(progress_every), 1) == 0:
-                        _emit_progress(np.sum(np.square(resid)))
-                    return resid
-                res = least_squares(_resid_pk_local, x0=start, bounds=(lb, ub), max_nfev=50000, method="trf")
-            if not res.success:
-                continue
-            pred_pack = _predict_ivivc_pk(t_h, saved_invitro, res.x, disposition, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio_effective, fixed_bio=fixed_bio)
-            pred_release_fit_pack = _predict_ivivc_release(fit_t_h, saved_invitro, res.x, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio_effective, fixed_bio=fixed_bio)
+                start_free = start[free_idx]
+                lb_free = lb[free_idx]
+                ub_free = ub[free_idx]
+                if use_saved_invivo:
+                    def _resid_release_local(x):
+                        full = _expand_free(x, start)
+                        resid = _ivivc_residuals_release(full, fit_t_h, release_target_fit, saved_invitro, False, fit_bio_effective, fixed_bio, fit_options=fit_options)
+                        progress_state["calls"] += 1
+                        if progress_state["calls"] <= 3 or progress_state["calls"] % max(int(progress_every), 1) == 0:
+                            _emit_progress(np.sum(np.square(resid)))
+                        return resid
+                    res = least_squares(_resid_release_local, x0=start_free, bounds=(lb_free, ub_free), max_nfev=50000, method="trf")
+                else:
+                    def _resid_pk_local(x):
+                        full = _expand_free(x, start)
+                        resid = _ivivc_residuals(full, t_h, mean_cp, saved_invitro, disposition, False, fit_bio_effective, fixed_bio, fit_options=fit_options)
+                        progress_state["calls"] += 1
+                        if progress_state["calls"] <= 3 or progress_state["calls"] % max(int(progress_every), 1) == 0:
+                            _emit_progress(np.sum(np.square(resid)))
+                        return resid
+                    res = least_squares(_resid_pk_local, x0=start_free, bounds=(lb_free, ub_free), max_nfev=50000, method="trf")
+                if not res.success:
+                    continue
+                params_eval = _expand_free(res.x, start)
+            pred_pack = _predict_ivivc_pk(t_h, saved_invitro, params_eval, disposition, use_paper_defaults=False, fit_bio=fit_bio_effective, fixed_bio=fixed_bio)
+            pred_release_fit_pack = _predict_ivivc_release(fit_t_h, saved_invitro, params_eval, use_paper_defaults=False, fit_bio=fit_bio_effective, fixed_bio=fixed_bio)
             if use_saved_invivo:
                 yhat = np.interp(fit_t_h, pred_release_fit_pack["t_grid_h"], pred_release_fit_pack["cumfrac_grid"])
                 target = np.asarray(release_target_fit, dtype=float)
@@ -2182,13 +2318,13 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
             raw_rss = float(np.sum((target - yhat) ** 2))
             _emit_progress(rss)
             n = len(_objective_residuals(target, yhat, fit_options))
-            k = len(res.x)
+            k = max(int(np.sum(~fix_mask)), 1)
             aic = n * np.log(max(rss, 1e-12) / max(n, 1)) + 2 * k
             bic = n * np.log(max(rss, 1e-12) / max(n, 1)) + k * np.log(max(n, 1))
             r2 = _objective_r2(target, yhat, fit_options)
             if (best is None) or (aic < best["aic"]):
                 best = {
-                    "params": np.asarray(res.x, dtype=float),
+                    "params": np.asarray(params_eval, dtype=float),
                     "pred_pack": pred_pack,
                     "release_fit_pack": pred_release_fit_pack,
                     "fit_options": _normalize_fit_options(fit_options),
@@ -2201,6 +2337,7 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
                     "init": p0,
                     "lb": lb,
                     "ub": ub,
+                    "fix_mask": fix_mask,
                     "fit_target": target_label,
                     "fit_target_values": np.asarray(target, dtype=float),
                     "fit_target_predictions": np.asarray(yhat, dtype=float),
@@ -2215,7 +2352,7 @@ def fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper
 
     rows = []
     for name, est, init, lo, hi in zip(best["param_names"], best["params"], best["init"], best["lb"], best["ub"]):
-        rows.append({"Parameter": name, "Estimate": est, "Initial": init, "Min": lo, "Max": hi})
+        rows.append({"Parameter": name, "Estimate": est, "Initial": init, "Min": lo, "Max": hi, "Fix": bool(best.get("fix_mask", np.zeros(len(best["param_names"]), dtype=bool))[len(rows)])})
 
     pk_tables = build_pk_study_tables(pk_df, time_unit_label, disposition["cp_unit"])
     deconv_individual_df, deconv_mean_df, deconv_method = build_ivivc_deconv_profiles(pk_df, time_unit_label, disposition)
@@ -3185,6 +3322,35 @@ def render():
                 fit_bio = st.checkbox("Fit BIO", value=IVIVC_UI_DEFAULTS["fit_bio"])
             with o3:
                 fixed_bio = st.number_input("Fixed BIO", min_value=0.000001, value=IVIVC_UI_DEFAULTS["fixed_bio"], format="%.6f", key="ivivc_fixed_bio", disabled=fit_bio)
+
+            if "ivivc_param_init_done" not in st.session_state:
+                defaults = _ivivc_default_parameter_settings(use_paper_defaults=use_paper_defaults)
+                for pname, meta in defaults.items():
+                    st.session_state.setdefault(f"ivivc_{pname}_start", float(meta["value"]))
+                    st.session_state.setdefault(f"ivivc_{pname}_fix", bool(meta["fix"]))
+                st.session_state["ivivc_param_init_done"] = True
+            elif use_paper_defaults and st.session_state.get("ivivc_last_use_paper_defaults") is False:
+                defaults = _ivivc_default_parameter_settings(use_paper_defaults=True)
+                for pname in ["A1", "A2", "B1"]:
+                    st.session_state[f"ivivc_{pname}_start"] = float(defaults[pname]["value"])
+                    st.session_state[f"ivivc_{pname}_fix"] = True
+            st.session_state["ivivc_last_use_paper_defaults"] = bool(use_paper_defaults)
+
+            with st.expander("IVIVC parameter starting values and fixed settings", expanded=False):
+                st.caption("Set starting values for A1, A2, B1, B2, and B3. Tick Fix to hold a parameter constant during the IVIVC optimization.")
+                hdr = st.columns([0.9, 1.1, 0.8])
+                hdr[0].markdown("**Parameter**")
+                hdr[1].markdown("**Initial value**")
+                hdr[2].markdown("**Fix**")
+                for pname, min_v, max_v in [("A1", -0.5, 1.0), ("A2", 0.0, 2.0), ("B1", -1e6, 1e6), ("B2", 0.01, 10.0), ("B3", 0.20, 5.0)]:
+                    cpar, cval, cfix = st.columns([0.9, 1.1, 0.8])
+                    with cpar:
+                        st.write(pname)
+                    with cval:
+                        st.number_input(f"{pname} start", value=float(st.session_state.get(f"ivivc_{pname}_start", 0.0)), format="%.6f", key=f"ivivc_{pname}_start")
+                    with cfix:
+                        st.checkbox(f"Fix {pname}", value=bool(st.session_state.get(f"ivivc_{pname}_fix", False)), key=f"ivivc_{pname}_fix")
+
             o4, o5, o6 = st.columns([1, 1, 1.2])
             with o4:
                 ivivc_fit_scale = st.selectbox("Fit scale", FIT_SCALE_OPTIONS, index=0, key="ivivc_fit_scale")
@@ -3213,7 +3379,14 @@ def render():
                         progress_bar, status_holder = _create_progress_display()
                         _cb = _progress_callback_factory(progress_bar, status_holder)
                         fit_options = {"fit_scale": ivivc_fit_scale, "weight_power": ivivc_weight_power, "weight_source": ivivc_weight_source}
-                        pack = fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper_defaults=use_paper_defaults, fit_bio=fit_bio, fixed_bio=fixed_bio, saved_invivo=saved_invivo, fit_options=fit_options, progress_callback=_cb)
+                        ivivc_parameter_settings = {
+                            "A1": {"value": st.session_state.get("ivivc_A1_start", 0.0), "fix": st.session_state.get("ivivc_A1_fix", False)},
+                            "A2": {"value": st.session_state.get("ivivc_A2_start", 1.0), "fix": st.session_state.get("ivivc_A2_fix", False)},
+                            "B1": {"value": st.session_state.get("ivivc_B1_start", 0.0), "fix": st.session_state.get("ivivc_B1_fix", False)},
+                            "B2": {"value": st.session_state.get("ivivc_B2_start", 1.0), "fix": st.session_state.get("ivivc_B2_fix", False)},
+                            "B3": {"value": st.session_state.get("ivivc_B3_start", 1.0), "fix": st.session_state.get("ivivc_B3_fix", False)},
+                        }
+                        pack = fit_ivivc_tool(pk_df, time_unit_label, saved_invitro, disposition, use_paper_defaults=False, fit_bio=fit_bio, fixed_bio=fixed_bio, saved_invivo=saved_invivo, fit_options=fit_options, progress_callback=_cb, parameter_settings=ivivc_parameter_settings)
                         st.session_state["ivivc_last_pack"] = pack
                         progress_bar.progress(1.0)
                         status_holder.markdown(f"Finished IVIVC fit. Best target: {'Saved InVivoFit release' if pack.get('used_saved_invivo', False) else 'PK profile'}.")
@@ -3367,6 +3540,8 @@ def render():
 
                 fig_fit = plot_weibull_profile_fits(fit_df, fit_pack, time_unit_label)
                 fig_best = plot_best_model_profile(fit_df, fit_pack, time_unit_label)
+                fig_best_bands = plot_best_model_profile_with_bands(fit_pack, time_unit_label)
+                best_profile_table, best_profile_band_table = _weibull_profile_interval_tables(fit_pack)
                 fig_aic = plot_model_comparison_aic(fit_pack)
                 fig_resid = plot_residuals_best_model(fit_pack, time_unit_label)
 
@@ -3393,7 +3568,8 @@ def render():
                 with tabs[-1]:
                     best_params = _wide_saved_parameter_table(param_df, best_model)
                     report_table(best_params, f"Parameters that will be saved for {best_model}", decimals)
-                    show_figure(fig_best, caption=f"Experimental and fitted profile ({best_model})")
+                    report_table(best_profile_table, f"Experimental and fitted profile values with approximate 95% CI and PI for {best_model}", decimals)
+                    show_figure(fig_best_bands, caption=f"Experimental and fitted profile with approximate 95% CI and PI ({best_model})")
                     if st.button("Save best model as InVitroFit", key="save_invitrofit_button"):
                         save_invitrofit_to_session(fit_pack, time_unit_label)
                         st.success("The best-fitting Weibull model was saved in this session as InVitroFit.")
@@ -3408,12 +3584,15 @@ def render():
                     "Parameter Estimates Summary": param_df_wide,
                     "Mean Dissolution Profile": mean_profile_df,
                     f"Parameters Saved for {best_model}": _wide_saved_parameter_table(param_df, best_model),
+                    f"Experimental vs Fitted with Bands ({best_model})": best_profile_table,
+                    f"Fitted Band Grid ({best_model})": best_profile_band_table,
                 }
                 if len(fit_pack["replicate_cols"]) == 1 and not single_profile_detail_best_wide.empty:
                     table_map["Single-Profile Parameter Statistics"] = single_profile_detail_best_wide
                 figure_map = {
                     "Observed dissolution profile and Weibull fits": fig_to_png_bytes(fig_fit),
                     f"Experimental and fitted profile ({best_model})": fig_to_png_bytes(fig_best),
+                    f"Experimental and fitted profile with bands ({best_model})": fig_to_png_bytes(fig_best_bands),
                     "Weibull model comparison by AIC": fig_to_png_bytes(fig_aic),
                     f"Residual plot for best model ({best_model})": fig_to_png_bytes(fig_resid),
                 }
