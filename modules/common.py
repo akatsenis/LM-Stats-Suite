@@ -555,7 +555,18 @@ def _render_copy_table_button(df, html_payload, caption=""):
     components.html(button_html, height=38)
 
 
-
+def report_table(df, caption="", decimals=None):
+    decimals = DEFAULT_DECIMALS if decimals is None else decimals
+    info_box(_auto_explanation_text(caption or "current table", kind="table"))
+    styled = df.style.hide(axis="index").set_caption(caption).set_table_styles([
+        {"selector": "caption", "props": [("text-align", "left"), ("font-size", "1rem"), ("font-weight", "700"), ("margin-bottom", "0.55rem")]},
+        {"selector": "thead th", "props": [("border-top", "6px solid #111827"), ("border-bottom", "1px solid #111827"), ("padding", "8px 12px"), ("text-align", "center"), ("background-color", "#f8fafc")]},
+        {"selector": "tbody td", "props": [("padding", "8px 12px"), ("text-align", "center")]},
+        {"selector": "tbody tr:last-child td", "props": [("border-bottom", "2px solid #111827")]},
+    ]).format(precision=decimals, na_rep="-")
+    html_table = styled.to_html()
+    _render_copy_table_button(df, html_table, caption=caption)
+    st.markdown(f"<div class='report-table'>{html_table}</div>", unsafe_allow_html=True)
 
 
 def make_excel_bytes(sheet_map):
