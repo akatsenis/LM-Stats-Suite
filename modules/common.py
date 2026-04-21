@@ -517,8 +517,8 @@ def _render_copy_table_button(df, html_payload, caption=""):
     button_label = "Copy table"
     button_html = f"""
     <div style="display:flex;justify-content:flex-end;margin:0.1rem 0 0.35rem 0;">
-      <button id="copy_table_btn" style="background:#FFFFFF;border:1px solid #FFFFFF;border-radius:6px;padding:0.32rem 0.7rem;font-size:0.86rem;cursor:pointer;color:#FFFFFF;">{button_label}</button>
-      <span id="copy_status" style="margin-left:0.55rem;font-size:0.82rem;color:#FFFFFF;line-height:1.9;"></span>
+      <button id="copy_table_btn" style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;padding:0.32rem 0.7rem;font-size:0.86rem;cursor:pointer;color:#111827;">{button_label}</button>
+      <span id="copy_status" style="margin-left:0.55rem;font-size:0.82rem;color:#475569;line-height:1.9;"></span>
     </div>
     <script>
     const htmlPayload = {json.dumps(html_payload)};
@@ -555,18 +555,7 @@ def _render_copy_table_button(df, html_payload, caption=""):
     components.html(button_html, height=38)
 
 
-def report_table(df, caption="", decimals=None):
-    decimals = DEFAULT_DECIMALS if decimals is None else decimals
-    info_box(_auto_explanation_text(caption or "current table", kind="table"))
-    styled = df.style.hide(axis="index").set_caption(caption).set_table_styles([
-        {"selector": "caption", "props": [("text-align", "left"), ("font-size", "1rem"), ("font-weight", "700"), ("margin-bottom", "0.55rem")]},
-        {"selector": "thead th", "props": [("border-top", "2px solid #111827"), ("border-bottom", "1px solid #111827"), ("padding", "8px 12px"), ("text-align", "center"), ("background-color", "#f8fafc")]},
-        {"selector": "tbody td", "props": [("padding", "8px 12px"), ("text-align", "center")]},
-        {"selector": "tbody tr:last-child td", "props": [("border-bottom", "2px solid #111827")]},
-    ]).format(precision=decimals, na_rep="-")
-    html_table = styled.to_html()
-    _render_copy_table_button(df, html_table, caption=caption)
-    st.markdown(f"<div class='report-table'>{html_table}</div>", unsafe_allow_html=True)
+
 
 
 def make_excel_bytes(sheet_map):
