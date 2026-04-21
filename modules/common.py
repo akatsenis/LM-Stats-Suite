@@ -1122,12 +1122,12 @@ def dis_plot_bootstrap_f2_distribution(boot_vals, observed_f2, ci_low=None, ci_h
     if ci_high is not None: ax.axvline(ci_high, color=cfg["tertiary_color"], linestyle=cfg["aux_line_style"], linewidth=cfg["line_width"])
     apply_ax_style(ax, title, "f2 values", "Density", legend=False, plot_key="Dissolution comparison"); ax.set_xlim(x_min, x_max)
     y_top = float(ax.get_ylim()[1]) if ax.get_ylim()[1] > 0 else 1.0
-    text_kw = dict(rotation=0, va="top", fontsize=9, clip_on=False)
+    text_kw = dict(rotation=90, va="top", fontsize=9, clip_on=False)
     ax.text(mean_boot*0.996, y_top * 0.6, f"Mean = {mean_boot:.2f}", ha="right", color=cfg["primary_color"], **text_kw)
     if ci_low is not None:
-        ax.text(ci_low*0.996, y_top, f"Lower CI = {ci_low:.2f}", ha="right", color=cfg["tertiary_color"], **text_kw)
+        ax.text(ci_low*0.996, y_top * 0.6, f"Lower CI = {ci_low:.2f}", ha="right", color=cfg["tertiary_color"], **text_kw)
     if ci_high is not None:
-        ax.text(ci_high*1.004, y_top, f"Upper CI = {ci_high:.2f}", ha="left", color=cfg["tertiary_color"], **text_kw)
+        ax.text(ci_high*1.004, y_top * 0.6, f"Upper CI = {ci_high:.2f}", ha="left", color=cfg["tertiary_color"], **text_kw)
     return fig
 
 __all__ = [name for name in globals() if not name.startswith('_')]
