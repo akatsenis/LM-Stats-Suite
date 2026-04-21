@@ -1105,7 +1105,7 @@ def dis_plot_bootstrap_f2_distribution(boot_vals, observed_f2, ci_low=None, ci_h
     if len(boot_vals) < 5:
         return None
     fig, ax = plt.subplots(figsize=(cfg["fig_w"], cfg["fig_h"]))
-    mean_boot = float(np.mean(boot_vals))
+    mean_boot = float(np.median(boot_vals))
     sd_boot = np.std(boot_vals, ddof=1)
     if sd_boot > 0:
         kde = gaussian_kde(boot_vals); x_lo = min(x_min, np.min(boot_vals) - 2 * sd_boot, observed_f2 - 5, mean_boot - 5); x_hi = max(x_max, np.max(boot_vals) + 2 * sd_boot, observed_f2 + 5, mean_boot + 5)
