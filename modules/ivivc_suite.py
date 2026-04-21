@@ -2834,22 +2834,22 @@ def render():
                 dose_value = st.number_input("Dose", min_value=0.000001, value=float((saved_invivo or {}).get("disposition", {}).get("dose_value", 6666666.6)), format="%.6f", key="ivivc_dose_value")
             with d3:
                 dose_unit_options = list(DOSE_UNIT_TO_MG.keys())
-                dose_unit_default = (saved_invivo or {}).get("disposition", {}).get("dose_unit", "mg")
+                dose_unit_default = (saved_invivo or {}).get("disposition", {}).get("dose_unit", "ng")
                 dose_unit = st.selectbox("Dose units", dose_unit_options, index=(dose_unit_options.index(dose_unit_default) if dose_unit_default in dose_unit_options else 2), key="ivivc_dose_unit")
             with d4:
-                v_value = st.number_input("V", min_value=0.000001, value=float((saved_invivo or {}).get("disposition", {}).get("V_value", 11.36.9)), format="%.6f", key="ivivc_v_value")
+                v_value = st.number_input("V", min_value=0.000001, value=float((saved_invivo or {}).get("disposition", {}).get("V_value", 1136.9)), format="%.6f", key="ivivc_v_value")
 
             d5, d6, d7, d8 = st.columns(4)
             with d5:
                 v_unit_options = list(VOLUME_UNIT_TO_L.keys())
-                v_unit_default = (saved_invivo or {}).get("disposition", {}).get("V_unit", "L")
+                v_unit_default = (saved_invivo or {}).get("disposition", {}).get("V_unit", "mL")
                 v_unit = st.selectbox("V units", v_unit_options, index=(v_unit_options.index(v_unit_default) if v_unit_default in v_unit_options else 2), key="ivivc_v_unit")
             with d6:
-                k10 = st.number_input("k10 (1/h)", min_value=0.000001, value=float((saved_invivo or {}).get("disposition", {}).get("k10", 0.254000)), format="%.6f", key="ivivc_k10")
+                k10 = st.number_input("k10 (1/h)", min_value=0.000001, value=float((saved_invivo or {}).get("disposition", {}).get("k10", 0.770000)), format="%.6f", key="ivivc_k10")
             with d7:
-                k12 = st.number_input("k12 (1/h)", min_value=0.0, value=float((saved_invivo or {}).get("disposition", {}).get("k12", 0.100000)), format="%.6f", key="ivivc_k12", disabled=compartments < 2)
+                k12 = st.number_input("k12 (1/h)", min_value=0.0, value=float((saved_invivo or {}).get("disposition", {}).get("k12", 1.382000)), format="%.6f", key="ivivc_k12", disabled=compartments < 2)
             with d8:
-                k21 = st.number_input("k21 (1/h)", min_value=0.0, value=float((saved_invivo or {}).get("disposition", {}).get("k21", 0.050000)), format="%.6f", key="ivivc_k21", disabled=compartments < 2)
+                k21 = st.number_input("k21 (1/h)", min_value=0.0, value=float((saved_invivo or {}).get("disposition", {}).get("k21", 1.814000)), format="%.6f", key="ivivc_k21", disabled=compartments < 2)
 
             d9, d10, d11 = st.columns([1, 1, 1.2])
             with d9:
