@@ -44,7 +44,19 @@ def render_word_friendly_tables(table_map, decimals):
     with st.expander("📄 Word-Friendly Tables (Copy & Paste to Word)"):
         st.info("Use the Copy table buttons above the main tables for direct copying. The HTML previews below can still be highlighted and pasted into Microsoft Word with formatting preserved.")
         for t_name, t_df in table_map.items():
-            html = build_word_friendly_table_html(t_df, caption=t_name, decimals=decimals)
+            st.markdown(f"<div style='margin-bottom: 5px; margin-top: 15px; font-weight: bold; font-size: 16px; color: #1f2937;'>{t_name}</div>", unsafe_allow_html=True)
+            
+            # Format numbers to the specified decimals before converting to HTML
+            fmt_df = t_df.copy()
+            for c in fmt_df.select_dtypes(include=[np.number]).columns:
+                fmt_df[c] = fmt_df[c].apply(lambda v: f"{v:.{decimals}f}" if pd.notna(v) else "-")
+            
+            # Generate pure HTML and inject Word-friendly CSS
+            html = fmt_df.to_html(index=False, escape=False)
+            html = html.replace('<table border="1" class="dataframe">', '<table style="border-collapse: collapse; width: 100%; font-family: Calibri, Arial, sans-serif; font-size: 11pt; border: 1px solid #d1d5db; color: #111827;">')
+            html = html.replace('<th>', '<th style="border: 1px solid #d1d5db; padding: 8px; text-align: left; background-color: #f3f4f6; font-weight: bold; border-bottom: 2px solid #9ca3af;">')
+            html = html.replace('<td>', '<td style="border: 1px solid #d1d5db; padding: 6px 8px;">')
+            
             st.markdown(html, unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
 
