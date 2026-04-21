@@ -22,7 +22,6 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
-from html import escape
 
 DEFAULT_DECIMALS = 3
 FIG_W = 9
@@ -555,61 +554,6 @@ def _render_copy_table_button(df, html_payload, caption=""):
     """
     components.html(button_html, height=38)
 
-def build_word_copy_html(df, caption="", decimals=None):
-    decimals = DEFAULT_DECIMALS if decimals is None else decimals
-
-    fmt_df = df.copy()
-
-    for c in fmt_df.columns:
-        if pd.api.types.is_numeric_dtype(fmt_df[c]):
-            fmt_df[c] = fmt_df[c].map(lambda x: "-" if pd.isna(x) else f"{x:.{decimals}f}")
-        else:
-            fmt_df[c] = fmt_df[c].map(lambda x: "-" if pd.isna(x) else str(x))
-
-    parts = []
-
-    if str(caption).strip():
-        parts.append(
-            f"<div style='font-family:\"Times New Roman\", Times, serif; "
-            f"font-size:10pt; font-weight:bold; margin:0 0 6pt 0;'>"
-            f"{escape(str(caption))}"
-            f"</div>"
-        )
-
-    parts.append(
-        "<table style='border-collapse:collapse; width:100%; "
-        "font-family:\"Times New Roman\", Times, serif; font-size:10pt; "
-        "border-top:none; border-left:none; border-right:none; "
-        "border-bottom:2px solid #111111;'>"
-    )
-
-    # Header row
-    parts.append("<thead><tr>")
-    for col in fmt_df.columns:
-        parts.append(
-            "<th style='padding:6px 10px; text-align:center; font-weight:bold; "
-            "background-color:#f2f2f2; border-top:none; border-left:none; border-right:none; "
-            "border-bottom:2px solid #111111;'>"
-            f"{escape(str(col))}"
-            "</th>"
-        )
-    parts.append("</tr></thead>")
-
-    # Body rows
-    parts.append("<tbody>")
-    for _, row in fmt_df.iterrows():
-        parts.append("<tr>")
-        for val in row:
-            parts.append(
-                "<td style='padding:6px 10px; text-align:center; "
-                "border-top:none; border-left:none; border-right:none; border-bottom:none;'>"
-                f"{escape(str(val))}"
-                "</td>"
-            )
-        parts.append("</tr>")
-    parts.append("</tbody></table>")
-
-    return "".join(parts)
 
 def report_table(df, caption="", decimals=None):
     decimals = DEFAULT_DECIMALS if decimals is None else decimals
@@ -621,11 +565,9 @@ def report_table(df, caption="", decimals=None):
         {"selector": "tbody tr:last-child td", "props": [("border-bottom", "2px solid #111827")]},
     ]).format(precision=decimals, na_rep="-")
     html_table = styled.to_html()
-    copy_html = build_word_copy_html(df, caption=caption, decimals=decimals)
-
-    _render_copy_table_button(df, copy_html, caption=caption)
+    _render_copy_table_button(df, html_table, caption=caption)
     st.markdown(f"<div class='report-table'>{html_table}</div>", unsafe_allow_html=True)
-    
+
 
 def make_excel_bytes(sheet_map):
     bio = BytesIO()
