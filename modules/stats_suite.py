@@ -43,20 +43,53 @@ def render_word_friendly_tables(table_map, decimals):
     st.markdown("---")
     with st.expander("📄 Word-Friendly Tables (Copy & Paste to Word)"):
         st.info("Use the Copy table buttons above the main tables for direct copying. The HTML previews below can still be highlighted and pasted into Microsoft Word with formatting preserved.")
+        
         for t_name, t_df in table_map.items():
-            st.markdown(f"<div style='margin-bottom: 5px; margin-top: 15px; font-weight: bold; font-size: 16px; color: #1f2937;'>{t_name}</div>", unsafe_allow_html=True)
-            
-            # Format numbers to the specified decimals before converting to HTML
+            st.markdown(
+                f"<div style='margin-bottom: 5px; margin-top: 15px; font-weight: bold; font-size: 16px; color: #1f2937;'>{t_name}</div>",
+                unsafe_allow_html=True
+            )
+
+            # Format numbers
             fmt_df = t_df.copy()
             for c in fmt_df.select_dtypes(include=[np.number]).columns:
                 fmt_df[c] = fmt_df[c].apply(lambda v: f"{v:.{decimals}f}" if pd.notna(v) else "-")
-            
-            # Generate pure HTML and inject Word-friendly CSS
-            html = fmt_df.to_html(index=False, escape=False)
-            html = html.replace('<table border="1" class="dataframe">', '<table style="border-collapse: collapse; width: 100%; font-family: Calibri, Arial, sans-serif; font-size: 11pt; border: 1px solid #d1d5db; color: #111827;">')
-            html = html.replace('<th>', '<th style="border: 1px solid #d1d5db; padding: 8px; text-align: left; background-color: #f3f4f6; font-weight: bold; border-bottom: 2px solid #9ca3af;">')
-            html = html.replace('<td>', '<td style="border: 1px solid #d1d5db; padding: 6px 8px;">')
-            
+
+            # Build Word-friendly HTML table manually
+            html_parts = []
+            html_parts.append(
+                "<table style='border-collapse: collapse; width: 100%; font-family: Calibri, Arial, sans-serif; font-size: 11pt; color: #111827; border-top: none; border-left: none; border-right: none;'>"
+            )
+
+            # Header
+            html_parts.append("<thead><tr>")
+            for col in fmt_df.columns:
+                html_parts.append(
+                    "<th style='padding: 8px; text-align: left; background-color: #f3f4f6; font-weight: bold; border-top: none; border-left: none; border-right: none; border-bottom: 2px solid #9ca3af;'>"
+                    f"{col}</th>"
+                )
+            html_parts.append("</tr></thead>")
+
+            # Body
+            html_parts.append("<tbody>")
+            n_rows = len(fmt_df)
+
+            for i, (_, row) in enumerate(fmt_df.iterrows()):
+                html_parts.append("<tr>")
+                is_last_row = (i == n_rows - 1)
+
+                for val in row:
+                    bottom_border = "2px solid #9ca3af" if is_last_row else "none"
+                    html_parts.append(
+                        "<td style='padding: 6px 8px; border-top: none; border-left: none; border-right: none; "
+                        f"border-bottom: {bottom_border};'>{val}</td>"
+                    )
+
+                html_parts.append("</tr>")
+            html_parts.append("</tbody></table>")
+
+            html = "".join(html_parts)
+
             st.markdown(html, unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
 
