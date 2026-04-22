@@ -1,0 +1,134 @@
+[
+  {
+    "topic": "Navigation and pages",
+    "keywords": [
+      "home",
+      "welcome",
+      "navigation",
+      "pages",
+      "sidebar"
+    ],
+    "summary": "App entry point, page routing, and sidebar navigation via Streamlit multipage navigation."
+  },
+  {
+    "topic": "Shared utilities",
+    "keywords": [
+      "common",
+      "export",
+      "copy table",
+      "plot style",
+      "report"
+    ],
+    "summary": "Shared parsing, plot styling, copy-table controls, Excel/PDF export, and reusable plotting functions."
+  },
+  {
+    "topic": "Stats Suite \u2013 Descriptive Statistics",
+    "keywords": [
+      "descriptive",
+      "summary",
+      "tukey",
+      "reference",
+      "intervals"
+    ],
+    "summary": "Computes descriptive summaries, confidence/tolerance intervals, ANOVA, Tukey HSD, and reference-vs-sample tests."
+  },
+  {
+    "topic": "Stats Suite \u2013 Regression and Shelf Life",
+    "keywords": [
+      "regression",
+      "shelf life",
+      "ci",
+      "pi",
+      "crossing"
+    ],
+    "summary": "Fits linear models, produces confidence/prediction intervals, and estimates shelf-life crossing points."
+  },
+  {
+    "topic": "Stats Suite \u2013 GLM / PCA",
+    "keywords": [
+      "anova",
+      "glm",
+      "pca",
+      "scores",
+      "loadings"
+    ],
+    "summary": "General linear models, factor/covariate ANOVA, and PCA score/loading plots with ellipses."
+  },
+  {
+    "topic": "IVIVC \u2013 Dissolution Comparison",
+    "keywords": [
+      "f2",
+      "bootstrap",
+      "bca",
+      "fda"
+    ],
+    "summary": "FDA-style f2 comparison with selected time points, checks, and optional bootstrap intervals."
+  },
+  {
+    "topic": "IVIVC \u2013 In Vitro Weibull Fit",
+    "keywords": [
+      "weibull",
+      "single",
+      "double",
+      "triple",
+      "aic"
+    ],
+    "summary": "Fits single/double/triple Weibull models to dissolution data and selects the best model by AIC."
+  },
+  {
+    "topic": "IVIVC \u2013 Deconvolution through convolution",
+    "keywords": [
+      "deconvolution",
+      "pk",
+      "ode",
+      "lsoda",
+      "trf"
+    ],
+    "summary": "Fits release models directly to PK data using analytical Weibull input rates and compartment ODEs."
+  },
+  {
+    "topic": "IVIVC \u2013 Time scaling",
+    "keywords": [
+      "ivivc",
+      "B1",
+      "B2",
+      "B3",
+      "bio",
+      "saved model"
+    ],
+    "summary": "Transforms saved in vitro profiles via time scaling, compares against saved in vivo release or PK, and back-predicts PK."
+  },
+  {
+    "topic": "DoE Studio \u2013 Design Builder",
+    "keywords": [
+      "doe",
+      "ccd",
+      "mixture",
+      "simplex",
+      "cosolvent"
+    ],
+    "summary": "Builds factorial, CCD, mixture, mixture-process, and co-solvent experimental designs."
+  },
+  {
+    "topic": "DoE Studio \u2013 Response Analysis",
+    "keywords": [
+      "aic",
+      "hierarchy",
+      "surface",
+      "contour",
+      "diagnostics"
+    ],
+    "summary": "Fits response-surface models, enforces hierarchy, and generates diagnostics and contour/surface plots."
+  },
+  {
+    "topic": "Reporting and export",
+    "keywords": [
+      "excel",
+      "pdf",
+      "reportlab",
+      "openpyxl",
+      "copy"
+    ],
+    "summary": "Exports tables to Excel and PDF, renders figures to PNG bytes, and exposes table copy controls."
+  }
+]
